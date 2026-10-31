@@ -84,7 +84,10 @@ PyPI publishing aren't set up yet (TODO below).
   `windows_vm` validates keys and expands forwards, then stops at the `/dev/kvm` check, as designed.
 - isc `kea_dhcp/ha3` (3 emulated amd64 nodes, static-IP network, HA failover verify) passes
   `molecule test` on the driver, in a scratch clone of isc `main` 9d20478 with
-  `docs/isc-scenarios.patch` applied; isc's converted Windows scenario validates up to `/dev/kvm`.
+  `docs/isc-scenarios.patch` applied, and so does `kea_dhcp/default --platform-name kea-debian12`
+  (only that container is created); isc's converted Windows scenario validates up to `/dev/kvm`.
+- A non-editable `pip install .` (what setup-molecule does) ships `playbooks/*.yml` and
+  `schema/driver.json`, and `molecule --version` lists `molecule-testlab`.
 - **Not verified yet:** `windows_vm` booting a VM and `ad_forest` (CI `windows-lab` only), the
   setup-molecule action (first CI run), and the isc/gpo Windows scenarios on the driver.
 

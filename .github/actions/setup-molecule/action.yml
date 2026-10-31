@@ -83,7 +83,9 @@ runs:
         molecule --version
         ansible-galaxy collection install --force "$root"
         while IFS= read -r req; do
-          [ -n "$req" ] && ansible-galaxy collection install -r "$req"
+          if [ -n "$req" ]; then
+            ansible-galaxy collection install -r "$req"
+          fi
         done <<< "$REQUIREMENTS"
 
     # Molecule runs the roles as <namespace>.<name>.<role>; the base config's

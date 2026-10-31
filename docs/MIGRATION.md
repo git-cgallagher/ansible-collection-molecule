@@ -155,7 +155,16 @@ Tried on a Mac (Docker Desktop, arm64) in a scratch clone with that patch applie
   verify checks the HA states and a real failover); nothing left behind.
 - `kea_dhcp_msdns/windows`: create validates `dc01`'s keys and expands its four forwards, then stops
   at the `/dev/kvm` check, as on any Mac. The VM boot and `ad_forest` need the `windows-dc` run.
+- `kea_dhcp/default --platform-name kea-debian12` (the CI matrix form): full `molecule test`
+  passes and only that platform's container is created.
 - Every docker platform in the 8 scenarios uses only keys the docker kind supports.
+- `yamllint .` and `ansible-lint` (production profile) stay at 0 with the patch applied.
+
+On a Mac only: the privileged systemd platforms (`stork_server/default`, `stork_agent/container`,
+`kea_dhcp/container`) clear Docker Desktop's amd64 emulation when they start, which breaks every
+emulated scenario run after them. Adding
+`/dev/null:/etc/systemd/system/systemd-binfmt.service:ro` to their `volumes` prevents it (see this
+repo's AGENTS.md); GitHub's amd64 runners don't emulate, so CI is unaffected either way.
 
 ## ansible-collection-gpo
 
