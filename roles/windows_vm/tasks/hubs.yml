@@ -3,6 +3,7 @@
 # to be created; the others find it running. destroy.yml stops it.
 - name: Look for running lab network hubs
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: [sh, -c, 'kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null', sh, "{{ item.hub_pidfile }}"]
   loop: "{{ windows_vm_lab_nics }}"
   loop_control:
@@ -13,6 +14,7 @@
 
 - name: Start the lab network hubs that aren't running
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ [ansible_playbook_python, role_path ~ '/files/lab_hub.py', '--hub', item.item.hub_port | string,
           '--pidfile', item.item.hub_pidfile]

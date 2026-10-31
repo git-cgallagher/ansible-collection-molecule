@@ -20,6 +20,7 @@
   block:
     - name: Kill the QEMU process
       ansible.builtin.command:
+        expand_argument_vars: false
         argv: [kill, "{{ windows_vm_pid }}"]
       register: windows_vm_kill
       changed_when: windows_vm_kill.rc == 0
@@ -37,6 +38,7 @@
 
 - name: Stop the lab network hubs
   ansible.builtin.command:
+    expand_argument_vars: false
     argv:
       - sh
       - -c

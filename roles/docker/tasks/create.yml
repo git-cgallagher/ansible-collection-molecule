@@ -20,6 +20,7 @@
 # --- networks (shared by platforms that list them; created once) --------------
 - name: Look for the platform's Docker networks
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: [docker, network, inspect, "{{ item.name }}"]
   loop: "{{ molecule_platform.docker_networks | default([]) }}"
   loop_control:
@@ -30,6 +31,7 @@
 
 - name: Create the missing networks
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['docker', 'network', 'create', '--label', 'owner=molecule']
          + (item.item.ipam_config | default([]) | map(attribute='subnet') | map('regex_replace', '^', '--subnet=') | list)
@@ -48,6 +50,7 @@
 - name: Build the image
   when: molecule_platform.dockerfile is defined
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['docker', 'build', '--tag', molecule_platform.image,
           '--file', docker_scenario_directory ~ '/' ~ molecule_platform.dockerfile]
@@ -60,6 +63,7 @@
 - name: Pull the image
   when: molecule_platform.dockerfile is undefined
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['docker', 'pull']
          + (['--platform', molecule_platform.platform] if molecule_platform.platform is defined else [])
@@ -70,6 +74,7 @@
 # --- container -------------------------------------------------------------------
 - name: Start the container
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['docker', 'run', '--detach', '--name', molecule_platform.name,
           '--hostname', molecule_platform.hostname | default(molecule_platform.name), '--label', 'owner=molecule']
@@ -97,6 +102,7 @@
 
 - name: Connect the container to its other networks
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['docker', 'network', 'connect']
          + (['--ip', item.ipv4_address] if item.ipv4_address | default('') else [])

@@ -81,6 +81,14 @@ PyPI publishing aren't set up yet (TODO below).
   It's read from the directory Molecule starts in, and lists in a scenario replace (not extend) the
   base's lists (`test_sequence`). `CRITICAL 'extensions/molecule/default/molecule.yml' glob failed`
   is Molecule looking for a `default` scenario: harmless.
+- **`ansible.builtin.command` expands `$NAME` in its arguments** (`expand_argument_vars`, on by
+  default since ansible-core 2.16), from the environment of the host the task runs on. PowerShell's
+  `$_` matched the runner's `_` variable, so `$_.MacAddress` reached Windows as
+  `/opt/hostedtoolcache/.../bin/molecule.MacAddress` (first `windows_cluster` CI run, PR #1). Every
+  `command` task in the roles sets `expand_argument_vars: false`; keep it on new ones.
+- **ansible-test's devel container can't start on GitHub runners** (it fails remounting
+  `/sys/fs/cgroup`, 2026-10-31, in isc too), so `sanity (devel, venv)` runs `ansible-test --venv`
+  on a plain runner, as git_cgallagher.orchestration does.
 - **ansible-core 2.19+ templates an `assert`'s `fail_msg` even when the assertion passes.** A
   `fail_msg` that dereferences a key the assertion is checking for (`{{ item.kind }}`) errors on the
   good path; use `default()` in messages.

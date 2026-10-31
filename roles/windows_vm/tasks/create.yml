@@ -115,6 +115,7 @@
 
 - name: Check that QEMU is installed
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: ["{{ item }}", --version]
   loop: [qemu-system-x86_64, qemu-img]
   changed_when: false
@@ -132,6 +133,7 @@
 
 - name: Measure free space in the lab directory
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: [df, -Pk, "{{ windows_vm_dir }}"]
   register: windows_vm_df
   changed_when: false
@@ -181,6 +183,7 @@
     # (list, then extract), which costs minutes on a 6 GB box.
     - name: Extract the disk image from the box  # noqa: command-instead-of-module
       ansible.builtin.command:
+        expand_argument_vars: false
         argv: [tar, -xzf, "{{ windows_vm_box_dir }}/box.download", -C, "{{ windows_vm_box_dir }}", ./box.img]
         creates: "{{ windows_vm_box }}"
 
@@ -196,6 +199,7 @@
 # --- VM ------------------------------------------------------------------------
 - name: Create a copy-on-write disk on top of the box image
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: [qemu-img, create, -f, qcow2, -F, qcow2, -b, "{{ windows_vm_box }}", "{{ windows_vm_overlay }}"]
     creates: "{{ windows_vm_overlay }}"
 
@@ -203,6 +207,7 @@
 # how jborean93's packer-windoze boxes are built (roles/setup/tasks/qemu.yml).
 - name: Start the VM
   ansible.builtin.command:
+    expand_argument_vars: false
     argv: >-
       {{ ['qemu-system-x86_64',
           '-name', windows_vm_name_prefix ~ '-' ~ molecule_platform.name,

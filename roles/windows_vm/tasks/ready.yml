@@ -17,6 +17,7 @@
 # half-open slirp connection (it hung one CI run for 40 minutes).
 - name: Wait for the box's first boot to finish (OOBE, rearm reboot, WinRM reset)
   ansible.builtin.command:
+    expand_argument_vars: false
     argv:
       # coreutils timeout, not the task keyword: a timed-out task fails
       # outright instead of being retried by `until`.
@@ -59,6 +60,7 @@
 - name: Configure the lab NICs
   when: windows_vm_lab_nics | length > 0
   ansible.builtin.command:
+    expand_argument_vars: false
     argv:
       - timeout
       - '180'
@@ -74,4 +76,4 @@
   until: windows_vm_lab_config.rc == 0
   retries: 5
   delay: 10
-  changed_when: (windows_vm_lab_config.stdout_lines | default(['ok']) | last) == 'changed'
+  changed_when: "'changed' in (windows_vm_lab_config.stdout_lines | default([]))"
