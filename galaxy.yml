@@ -36,3 +36,9 @@ build_ignore:
   - .gitignore
   - AGENTS.md
   - docs
+  # The molecule-testlab driver ships through pip (pyproject.toml), not Galaxy.
+  - pyproject.toml
+  - molecule_testlab
+  - '*.egg-info'
+  - build
+  - dist

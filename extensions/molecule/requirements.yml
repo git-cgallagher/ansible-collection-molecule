@@ -1,6 +1,11 @@
 ---
-# Test-only collections for the self-test scenarios (the collection's own
-# dependencies are in galaxy.yml).
+# Collections the self-test scenarios need. The scenarios use this checkout
+# through .molecule-collections, not an install, so git_cgallagher.testlab's
+# own galaxy.yml dependencies are listed here as well.
 collections:
   - name: community.docker   # the docker connection
     version: '>=3.0.0'
+  - name: ansible.windows    # windows_dc: win_ping, win_powershell, ad_forest
+    version: '>=2.0.0'
+  - name: microsoft.ad       # windows_dc: ad_forest's microsoft.ad.domain
+    version: '>=1.6.0'

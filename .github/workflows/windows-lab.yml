@@ -1,0 +1,87 @@
+name: windows-lab
+
+# The windows_vm kind and ad_forest end to end: Molecule boots a Windows
+# Server 2022 VM under QEMU/KVM on the runner, promotes it to a new forest
+# with Microsoft DNS, and a host-network container queries it through the
+# forwarded port. About 15 min.
+#
+# Not a required check: it is path-filtered (a required check that doesn't
+# run blocks merges forever) and depends on a third-party box download.
+
+on:
+  pull_request:
+    paths:
+      - roles/windows_vm/**
+      - roles/ad_forest/**
+      - roles/docker/**
+      - playbooks/**
+      - molecule_testlab/**
+      - extensions/molecule/windows_dc/**
+      - .github/actions/**
+      - .github/workflows/windows-lab.yml
+  # Weekly: catches box, collection and runner-image changes.
+  schedule:
+    - cron: '0 15 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same PR supersedes the run in flight.
+concurrency:
+  group: windows-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PY_COLORS: '1'
+  ANSIBLE_FORCE_COLOR: '1'
+  # Stream Ansible's output (retry lines included) instead of buffering it
+  # until the play ends; a stalled step is then visible in the live log.
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  molecule:
+    name: molecule windows_dc
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The runner's temp disk: the box (~6 GB, plus ~6 GB while unpacking)
+      # and the VM disk don't fit on the ~14 GB root filesystem.
+      - uses: ./.github/actions/setup-molecule
+        with:
+          collection: git_cgallagher.testlab
+          requirements: extensions/molecule/requirements.yml
+          kvm: 'true'
+          lab-dir: /mnt/testlab
+
+      # --destroy=never: keep the VM for the diagnostics below; the last step
+      # destroys it either way. A hang must become a failure, so the screen
+      # capture runs.
+      - name: molecule test
+        timeout-minutes: 75
+        run: molecule test -s windows_dc --destroy=never
+
+      - name: Capture the VM screen
+        if: failure()
+        timeout-minutes: 2
+        uses: ./.github/actions/vm-screendump
+        with:
+          lab-dir: /mnt/testlab
+          platform: dc01
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: windows-lab-diagnostics
+          path: /mnt/testlab/*-screen.ppm
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: molecule destroy
+        if: always()
+        run: molecule destroy -s windows_dc

@@ -1,0 +1,38 @@
+---
+# The windows_vm kind end to end, next to a docker container, the way
+# git_cgallagher.isc's ms-dns scenario uses it: a Windows Server 2022 VM under
+# QEMU/KVM, promoted to a new forest with Microsoft DNS by ad_forest, and a
+# host-network container that queries the DC's DNS through the forwarded
+# port. Needs Linux x86-64 with /dev/kvm and ~20 GB in $TESTLAB_DIR, ~15 min:
+# CI's windows-lab workflow, not a Mac.
+platforms:
+  - name: dc01
+    kind: windows_vm
+    # jborean93's packer-windoze box: a sysprepped Windows Server 2022
+    # evaluation image built for Ansible WinRM/PSRP testing (microsoft.ad's
+    # own integration tests use it). Pinned by version + SHA-256.
+    box_url: https://vagrantcloud.com/jborean93/boxes/WindowsServer2022/versions/1.2.0/providers/libvirt/amd64/vagrant.box
+    box_sha256: bc2e6a173390d4457e66ba30d5ffff7dbc87b849532bc0f41f4c1246f4e53bd4
+    box_user: vagrant
+    box_password: vagrant
+    memory_mb: 4096
+    cpus: 2
+    winrm_port: 5985
+    forwards:
+      - {port: 15353, guest_port: 53, protocols: [tcp, udp]}
+  - name: testlab-client
+    image: python:3.13-slim
+    network_mode: host
+provisioner:
+  inventory:
+    host_vars:
+      dc01:
+        ansible_psrp_protocol: http
+        # Nested-virt VMs occasionally drop a connection; retry instead of failing.
+        ansible_psrp_reconnection_retries: 3
+    group_vars:
+      all:
+        lab_domain: testlab.test
+        lab_dns_port: 15353
+scenario:
+  test_sequence: [dependency, destroy, syntax, create, prepare, converge, idempotence, verify, destroy]

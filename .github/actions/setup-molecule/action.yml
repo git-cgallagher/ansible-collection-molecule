@@ -1,18 +1,21 @@
-name: Set up Molecule
+name: Set up Molecule with the molecule-testlab driver
 description: >-
-  Python, ansible-core, Molecule and a collection's test requirements; exposes
-  the checkout as <namespace>.<name> for Molecule; optionally KVM + QEMU and a
-  lab directory on the runner's large /mnt disk for windows_vm platforms.
+  Python, ansible-core, Molecule, the molecule-testlab driver and the
+  git_cgallagher.testlab collection (both from this action's own ref, so one
+  SHA pin versions all three), plus a collection's test requirements. Exposes
+  the checkout as <namespace>.<name> for Molecule; optionally enables KVM and
+  QEMU and a lab directory on the runner's large /mnt disk for windows_vm platforms.
 inputs:
   collection:
-    description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections.
-    required: true
+    description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections. Empty for a standalone role.
+    required: false
+    default: ''
   requirements:
-    description: Collection requirement files to install, one per line (missing files are an error).
+    description: Collection requirement files to install, one per line.
     required: false
     default: ''
   pip:
-    description: Extra pip packages, space-separated (e.g. "molecule-plugins[docker] docker").
+    description: Extra pip packages, space-separated.
     required: false
     default: ''
   ansible-core:
@@ -63,7 +66,9 @@ runs:
         echo "TESTLAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
         df -h "$LAB_DIR" /
 
-    - name: Install Ansible, Molecule and the test collections
+    # The action's own checkout is the whole repository at the pinned ref:
+    # the driver (pyproject.toml) and the collection (galaxy.yml) come from it.
+    - name: Install Ansible, Molecule, the driver and the collections
       shell: bash
       env:
         CORE: ${{ inputs.ansible-core }}
@@ -71,17 +76,20 @@ runs:
         KVM: ${{ inputs.kvm }}
         REQUIREMENTS: ${{ inputs.requirements }}
       run: |
-        pkgs=("$CORE" molecule)
-        [ "$KVM" = true ] && pkgs+=(pypsrp)
+        root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
+        driver=$root; [ "$KVM" = true ] && driver="$root[windows]"
         read -ra extra <<< "$EXTRA"
-        pip install "${pkgs[@]}" "${extra[@]}"
+        pip install "$CORE" molecule "$driver" "${extra[@]}"
+        molecule --version
+        ansible-galaxy collection install --force "$root"
         while IFS= read -r req; do
           [ -n "$req" ] && ansible-galaxy collection install -r "$req"
         done <<< "$REQUIREMENTS"
 
-    # Molecule runs the roles as <namespace>.<name>.<role>; ANSIBLE_COLLECTIONS_PATH
-    # in each scenario includes .molecule-collections.
+    # Molecule runs the roles as <namespace>.<name>.<role>; the base config's
+    # ANSIBLE_COLLECTIONS_PATH puts .molecule-collections first.
     - name: Expose the checkout as ${{ inputs.collection }}
+      if: inputs.collection != ''
       shell: bash
       env:
         FQCN: ${{ inputs.collection }}
