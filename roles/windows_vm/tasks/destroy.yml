@@ -31,6 +31,24 @@
         state: absent
         timeout: 60
 
+# The first of a network's VMs to go stops its hub; the rest find no pidfile.
+- name: Work out the NICs
+  ansible.builtin.include_tasks: lab_nics.yml
+
+- name: Stop the lab network hubs
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - '[ -f "$1" ] || exit 0; kill "$(cat "$1")" 2>/dev/null || true; rm -f "$1"; echo stopped'
+      - sh
+      - "{{ item.hub_pidfile }}"
+  loop: "{{ windows_vm_lab_nics }}"
+  loop_control:
+    label: "{{ item.name }} (hub 127.0.0.1:{{ item.hub_port }})"
+  register: windows_vm_hub_stop
+  changed_when: "'stopped' in windows_vm_hub_stop.stdout"
+
 - name: Remove the VM disk, pidfile and monitor socket
   ansible.builtin.file:
     path: "{{ item }}"

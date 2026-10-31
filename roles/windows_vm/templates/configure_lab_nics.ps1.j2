@@ -1,0 +1,61 @@
+# Rendered by the windows_vm kind's ready step (see tasks/ready.yml).
+$ErrorActionPreference = 'Stop'
+$spec = ConvertFrom-Json -InputObject @'
+{{ {'management_mac': windows_vm_mgmt_mac, 'nics': windows_vm_lab_nics} | to_json }}
+'@
+$changed = $false
+
+function Get-AdapterByMac {
+    param([string]$Mac)
+    $want = $Mac.ToUpper().Replace(':', '-')
+    Get-NetAdapter -Physical | Where-Object { $_.MacAddress -eq $want }
+}
+
+$management = Get-AdapterByMac -Mac $spec.management_mac
+if ($management) {
+    if ($management.Name -ne 'management') {
+        Rename-NetAdapter -Name $management.Name -NewName 'management'
+        $changed = $true
+    }
+    if ((Get-DnsClient -InterfaceAlias 'management').RegisterThisConnectionsAddress) {
+        Set-DnsClient -InterfaceAlias 'management' -RegisterThisConnectionsAddress $false
+        $changed = $true
+    }
+}
+
+foreach ($nic in $spec.nics) {
+    $adapter = Get-AdapterByMac -Mac $nic.mac
+    if (-not $adapter) {
+        throw "No adapter with MAC $($nic.mac) for lab network $($nic.name)"
+    }
+    if ($adapter.Name -ne $nic.name) {
+        Rename-NetAdapter -Name $adapter.Name -NewName $nic.name
+        $changed = $true
+    }
+    $index = $adapter.ifIndex
+    $current = @(Get-NetIPAddress -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction SilentlyContinue)
+    $wanted = $current | Where-Object {
+        $_.IPAddress -eq $nic.ipv4_address -and $_.PrefixLength -eq $nic.prefix_length -and $_.PrefixOrigin -eq 'Manual'
+    }
+    if (-not $wanted) {
+        Set-NetIPInterface -InterfaceIndex $index -AddressFamily IPv4 -Dhcp Disabled
+        $current | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+        $null = New-NetIPAddress -InterfaceIndex $index -AddressFamily IPv4 -IPAddress $nic.ipv4_address -PrefixLength $nic.prefix_length
+        $changed = $true
+    }
+    # Windows files a network it can't identify under Public. Its profile
+    # appears a few seconds after the address does.
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $connectionProfile = Get-NetConnectionProfile -InterfaceIndex $index -ErrorAction SilentlyContinue
+        if ($connectionProfile) {
+            if ($connectionProfile.NetworkCategory -eq 'Public') {
+                Set-NetConnectionProfile -InterfaceIndex $index -NetworkCategory Private
+                $changed = $true
+            }
+            break
+        }
+        Start-Sleep -Seconds 3
+    }
+}
+
+if ($changed) { 'changed' } else { 'ok' }

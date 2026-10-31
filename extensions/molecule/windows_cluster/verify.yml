@@ -1,0 +1,38 @@
+---
+- name: Check the lab network from each node
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Read the NICs and reach the other node over the lab network
+      ansible.windows.win_powershell:
+        script: |
+          param([string]$Peer)
+          $Ansible.Changed = $false
+          $cluster = Get-NetAdapter -Name 'cluster' -ErrorAction SilentlyContinue
+          # WinRM listens on every interface, so its port proves the peer is
+          # reachable without opening the firewall for ICMP.
+          $tcp = Test-NetConnection -ComputerName $Peer -Port 5985 -WarningAction SilentlyContinue
+          [ordered]@{
+              cluster_up       = [bool]($cluster -and $cluster.Status -eq 'Up')
+              cluster_address  = @(Get-NetIPAddress -InterfaceAlias 'cluster' -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                                     ForEach-Object { $_.IPAddress })
+              cluster_category = [string](Get-NetConnectionProfile -InterfaceAlias 'cluster' -ErrorAction SilentlyContinue).NetworkCategory
+              management_dns   = [bool](Get-DnsClient -InterfaceAlias 'management' -ErrorAction SilentlyContinue).RegisterThisConnectionsAddress
+              peer_tcp         = [bool]$tcp.TcpTestSucceeded
+              peer_neighbor    = [string](Get-NetNeighbor -IPAddress $Peer -ErrorAction SilentlyContinue).State
+          }
+        parameters:
+          Peer: "{{ lab_peer }}"
+      register: lab_check
+
+    - name: Require the static address, a Private profile and the peer over the lab network
+      ansible.builtin.assert:
+        that:
+          - lab_result.cluster_up
+          - lab_result.cluster_address == [lab_address]
+          - lab_result.cluster_category == 'Private'
+          - not lab_result.management_dns
+          - lab_result.peer_tcp
+        fail_msg: "{{ lab_result | to_json }}"
+      vars:
+        lab_result: "{{ lab_check.output[0] }}"

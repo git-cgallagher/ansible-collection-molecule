@@ -7,7 +7,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | `molecule_git_cgallagher/`, `pyproject.toml` | the `molecule-git-cgallagher` Molecule driver: name, schema, bundled create/destroy that import the collection's playbooks | pip (git URL; PyPI later) |
 | `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, role `ad_forest` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
-| `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` (KVM only); `config.yml` is their shared base config | not shipped |
+| `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config | not shipped |
 | `docs/MIGRATION.md` | the per-repo plan for isc and windows (formerly gpo) | — |
 
 ## Commands
@@ -21,6 +21,7 @@ yamllint . && ansible-lint               # production profile, must stay at 0
 molecule test -s docker_smoke            # from the repo root
 molecule test -s docker_full             # every docker key; ~3 min on a Mac
 molecule test -s windows_dc              # Linux x86-64 + /dev/kvm only (CI: windows-lab workflow)
+molecule test -s windows_cluster         # two VMs on a lab network; same requirements
 ```
 
 Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible-test sanity --docker`.
@@ -30,14 +31,25 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
 - Molecule calls the driver's `get_playbook(step)`: `molecule_git_cgallagher/playbooks/create.yml` is one
   `import_playbook: git_cgallagher.molecule.create`. If the collection isn't installed that import
   fails loudly ("Could not find playbook"), which is the guard.
-- `playbooks/create.yml` loops over `molecule_yml.platforms` and includes the role named after each
-  platform's `kind` (default `docker`), entry point `create`; destroy does the same in reverse.
-- **Kind contract.** A kind role reads `molecule_platform` and `molecule_lab_dir`, asserts the
-  platform's keys against its own list (`vars/main.yml`; unknown keys fail), and appends instance
-  entries (`instance`, `address`, `connection`, and `port`/`user`/`password` when needed) to
-  `<kind>_instances`. The driver subclasses Molecule's delegated driver, which maps those entries to
+- `playbooks/create.yml` loops over `molecule_yml.platforms` twice, including the role named after
+  each platform's `kind` (default `docker`): entry point `create` for every platform, then `ready` for
+  every platform. Destroy loops once, in reverse, with `destroy`.
+- **Kind contract.** A kind role reads `molecule_platform` and `molecule_lab_dir`. Its `create`
+  asserts the platform's keys against its own list (`vars/main.yml`; unknown keys fail), starts the
+  platform without waiting, and appends instance entries (`instance`, `address`, `connection`, and
+  `port`/`user`/`password` when needed) to `<kind>_instances`; its `ready` waits until the platform is
+  usable. The driver subclasses Molecule's delegated driver, which maps those entries to
   `ansible_host`/`ansible_port`/`ansible_connection`/... in the inventory. New kind = new role + its
   name in `molecule_kinds` in both playbooks + a self-test.
+- **windows_vm networking.** NIC 0 is QEMU user networking (WinRM + `forwards` on 127.0.0.1, the same
+  10.0.2.15 on every VM). Each `lab_networks` entry adds a virtio NIC on a QEMU socket netdev in UDP
+  mode, talking to `files/lab_hub.py` on 127.0.0.1, which repeats every frame to the network's other
+  members. `tasks/lab_nics.yml` derives hub ports (16-port blocks in 20000–59999) from the scenario
+  directory + network name, and MACs from those + the platform name, so create, ready and destroy
+  agree without state. The first VM of a network starts its hub (`tasks/hubs.yml`); destroy stops it.
+  `ready` waits for the first boot, then `templates/configure_lab_nics.ps1.j2` (over PSRP, in a fresh
+  process) renames the NICs, sets the static addresses and the Private profile, and turns off DNS
+  registration on `management`.
 - Platform key names for `docker` follow molecule-plugins' docker driver so consumers' existing
   `platforms:` carry over. Keep that true when adding keys.
 
@@ -97,13 +109,23 @@ PyPI publishing aren't set up yet (TODO below).
   `docker_smoke`, `docker_full` and isc `kea_dhcp/default --platform-name kea-debian12` re-run green.
 - A non-editable `pip install .` (what setup-molecule does) ships `playbooks/*.yml` and
   `schema/driver.json`, and `molecule --version` lists `molecule-git-cgallagher`.
-- **Not verified yet:** `windows_vm` booting a VM and `ad_forest` (CI `windows-lab` only), the
-  setup-molecule action (first CI run), and the isc and windows repos' Windows scenarios on the driver.
+- Lab networks, on the Mac: `lab_hub.py` repeats each frame to every other member and refuses a
+  taken port; started through the role's own `hubs.yml` for three VMs, only the first VM starts the
+  hub, a second create starts nothing, frames cross it, and `destroy.yml` stops it. The NIC
+  calculation gives distinct hub blocks, member ports in platform order and unique MACs, and the
+  rendered NIC script parses in PowerShell 7 and passes PSScriptAnalyzer. Duplicate lab addresses,
+  clashing host ports and bad `lab_networks` keys fail with a message.
+- **Not verified yet:** `windows_vm` booting a VM, `ad_forest`, and two VMs on a lab network (CI
+  `windows-lab`: `windows_dc`, `windows_cluster`); QEMU's socket netdev against the hub (no QEMU on the
+  Mac); the setup-molecule action (first CI run); and the isc and windows repos' Windows scenarios on
+  the driver.
 
 ## TODO
 
 - Publish the repo (public baseline), then run `ci` and `windows-lab` once and add the stable
   checks to the ruleset.
+- Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
+  extra data disks per VM: not supported yet.
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).

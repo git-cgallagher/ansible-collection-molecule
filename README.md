@@ -14,7 +14,7 @@ only describes its platforms; the driver creates and destroys them.
   | kind | role | creates | needs |
   |---|---|---|---|
   | `docker` (default) | `git_cgallagher.molecule.docker` | a container through the docker CLI, plus its networks and Dockerfile build | Docker |
-  | `windows_vm` | `git_cgallagher.molecule.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1 | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
+  | `windows_vm` | `git_cgallagher.molecule.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1; several per scenario, on shared lab networks for clusters | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
 
   Plus **`git_cgallagher.molecule.ad_forest`**, a prepare-time role that promotes a
   `windows_vm` to the first DC of a new forest.
@@ -85,8 +85,53 @@ Dockerfile isn't a Jinja template, a built image keeps its own name (no `molecul
 prebuilt images are always pulled (for `platform`, that architecture).
 
 **windows_vm**: `box_url`, `box_sha256`, `box_user`, `box_password`, `winrm_port` (required),
-`memory_mb` (4096), `cpus` (2), `forwards`. The box is cached by checksum in the lab directory: the
-`$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else `~/.cache/molecule-lab`.
+`memory_mb` (4096), `cpus` (2), `forwards`, `lab_networks`. The box is cached by checksum in the lab
+directory: `$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else
+`~/.cache/molecule-lab`.
+
+### Several VMs, and clusters
+
+A scenario can list several `windows_vm` platforms, each with its own `winrm_port` (and forward
+ports; a clash fails the run). They all start before the driver waits for any of them, so they boot
+side by side rather than one after another.
+
+Each VM's first NIC, named `management` in Windows, is QEMU user networking: it carries WinRM and the
+`forwards`, all on 127.0.0.1. It has the same address (10.0.2.15) on every VM and can't reach the
+others. For VM-to-VM traffic, give the VMs a **lab network**:
+
+```yaml
+platforms:
+  - name: node1
+    kind: windows_vm
+    # box_url, box_sha256, box_user, box_password ...
+    winrm_port: 15985
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.11}      # prefix_length: 24 by default
+  - name: node2
+    kind: windows_vm
+    # ...
+    winrm_port: 15986
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.12}
+```
+
+VMs that list the same network name share an Ethernet segment, and a VM can be on several networks
+(cluster and storage, say). The driver adds one NIC per network, names it after the network in
+Windows, gives it the static address, files it as a Private network, and keeps the management NIC out
+of DNS registration. It needs no root: each network is a small UDP hub on 127.0.0.1
+(`roles/windows_vm/files/lab_hub.py`) that QEMU's socket NICs talk to. Containers can't join a lab
+network; they reach VMs through the forwards.
+
+For a cluster lab, keep in mind:
+
+- **DNS for a domain join.** The management NIC's DHCP DNS (10.0.2.3) can't resolve the lab
+  domain. Point every adapter at the DC's lab address in prepare (`ansible.windows.win_dns_client`
+  with `adapter_names: '*'`).
+- **WSFC sees the management network on every node.** It has the same subnet on every node but
+  can't carry traffic between them, so take it out of cluster use (`(Get-ClusterNetwork <name>).Role
+  = 0`) and let the cluster run over the lab network.
+- **Memory.** GitHub's standard Linux runner has 4 vCPUs and 16 GB: room for about three VMs at
+  3–4 GB each (an estimate; the `windows_cluster` self-test runs two at 3 GB).
 
 ## Install
 
@@ -119,10 +164,11 @@ Without the pip package, a scenario can use `driver: default` (`options: {manage
 
 ## Adding a kind
 
-A kind is a role in this collection with `create` and `destroy` entry points. It reads
-`molecule_platform` (one `molecule.yml` platform) and `molecule_lab_dir`, checks the platform's keys,
-appends its Molecule instance-config entries to `<kind>_instances`, and is listed in `molecule_kinds`
-in `playbooks/create.yml` and `playbooks/destroy.yml`.
+A kind is a role in this collection with `create`, `ready` and `destroy` entry points. Each reads
+`molecule_platform` (one `molecule.yml` platform) and `molecule_lab_dir`. `create` checks the
+platform's keys, starts it and appends its Molecule instance-config entries to `<kind>_instances`;
+`ready` waits until it's usable (every platform's `create` runs before any `ready`). The kind is
+listed in `molecule_kinds` in `playbooks/create.yml` and `playbooks/destroy.yml`.
 
 ## License
 

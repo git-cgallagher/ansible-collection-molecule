@@ -12,6 +12,9 @@ argument_specs:
   create:
     short_description: Pull or build the image, create networks, start the container and append its entry to C(docker_instances)
     options: *docker_options
+  ready:
+    short_description: Nothing to wait for (a container is usable once it has started)
+    options: *docker_options
   destroy:
     short_description: Remove the container, and its networks once nothing uses them
     options: *docker_options

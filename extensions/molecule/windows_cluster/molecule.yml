@@ -1,0 +1,39 @@
+---
+# Two Windows VMs on one lab network, the starting point of a cluster lab:
+# both boot side by side, the ready step gives each a static address on the
+# shared segment, and verify proves each reaches the other over it. Needs
+# Linux x86-64 with /dev/kvm, ~25 GB in $MOLECULE_LAB_DIR and ~8 GB RAM for
+# the VMs; CI's windows-lab workflow, not a Mac.
+platforms:
+  - &node
+    name: node1
+    kind: windows_vm
+    # jborean93's packer-windoze box: a sysprepped Windows Server 2022
+    # evaluation image built for Ansible WinRM/PSRP testing. Pinned by
+    # version + SHA-256.
+    box_url: https://vagrantcloud.com/jborean93/boxes/WindowsServer2022/versions/1.2.0/providers/libvirt/amd64/vagrant.box
+    box_sha256: bc2e6a173390d4457e66ba30d5ffff7dbc87b849532bc0f41f4c1246f4e53bd4
+    box_user: vagrant
+    box_password: vagrant
+    memory_mb: 3072
+    cpus: 2
+    winrm_port: 15985
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.11}
+  - <<: *node
+    name: node2
+    winrm_port: 15986
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.12}
+provisioner:
+  inventory:
+    group_vars:
+      all:
+        ansible_psrp_protocol: http
+        # Nested-virt VMs occasionally drop a connection; retry instead of failing.
+        ansible_psrp_reconnection_retries: 3
+    host_vars:
+      node1: {lab_address: 10.42.0.11, lab_peer: 10.42.0.12}
+      node2: {lab_address: 10.42.0.12, lab_peer: 10.42.0.11}
+scenario:
+  test_sequence: [dependency, destroy, syntax, create, converge, idempotence, verify, destroy]

@@ -215,6 +215,10 @@ One PR:
    `gpo-repo*/`; `GPO_LAB_DIR` becomes `MOLECULE_LAB_DIR`. Still not a required check.
 6. Docs: AGENTS.md, `tests/domain_lab/README.md`, CHANGELOG.
 
+After that, a role that needs several Windows nodes (the `wsfc` role's cluster, for one) can list
+more `windows_vm` platforms on a shared `lab_networks` segment in its own scenario, instead of
+settling for a single-VM lab.
+
 ## Order
 
 1. Publish this repo (public, full new-public-repo baseline), merge, let `ci` and `windows-lab` go

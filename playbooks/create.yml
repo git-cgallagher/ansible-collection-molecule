@@ -4,9 +4,11 @@
 # named after its kind, in the order molecule.yml lists them; then the
 # instance config Molecule builds its inventory from is written.
 #
-# A kind is a role in this collection with `create` and `destroy` entry
-# points. It reads molecule_platform (and molecule_lab_dir if it needs disk)
-# and appends its instance-config entries to <kind>_instances.
+# A kind is a role in this collection with `create`, `ready` and `destroy`
+# entry points. It reads molecule_platform (and molecule_lab_dir if it needs
+# disk), and its create appends instance-config entries to <kind>_instances.
+# Every platform's create runs before any platform's ready, so a kind's
+# create starts things and its ready waits for them.
 - name: Create the Molecule platforms
   hosts: localhost
   gather_facts: false
@@ -32,6 +34,17 @@
       ansible.builtin.include_role:
         name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
         tasks_from: create
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: molecule_platform
+        label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"
+
+    # After every platform is created, so slow starts overlap: every VM is
+    # booting before the first one is waited for.
+    - name: Wait until the platforms are ready
+      ansible.builtin.include_role:
+        name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
+        tasks_from: ready
       loop: "{{ molecule_yml.platforms }}"
       loop_control:
         loop_var: molecule_platform

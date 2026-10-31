@@ -1,0 +1,7 @@
+---
+- name: Reach both nodes
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Ping
+      ansible.windows.win_ping:

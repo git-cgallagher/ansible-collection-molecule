@@ -14,3 +14,20 @@ windows_vm_platform_keys:
   - memory_mb     # default 4096
   - cpus          # default 2
   - forwards      # [{port, guest_port, protocols: [tcp, udp]}], on 127.0.0.1
+  - lab_networks  # [{name, ipv4_address, prefix_length (24)}]: VM-to-VM segments
+
+# Keys of a lab_networks entry.
+windows_vm_lab_network_keys: [name, ipv4_address, prefix_length]
+
+# Runs one PowerShell script over PSRP in a fresh process (argv: host, port,
+# user, password, script); prints its output, exits 1 on any error record.
+windows_vm_psrp_run: |
+  import sys
+  from pypsrp.client import Client
+  client = Client(sys.argv[1], port=int(sys.argv[2]), username=sys.argv[3], password=sys.argv[4],
+                  ssl=False, auth="negotiate", connection_timeout=30)
+  out, streams, had_errors = client.execute_ps(sys.argv[5])
+  print(out)
+  if had_errors:
+      print("\n".join(str(record) for record in streams.error), file=sys.stderr)
+      sys.exit(1)
