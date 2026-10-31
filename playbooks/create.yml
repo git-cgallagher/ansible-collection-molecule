@@ -1,0 +1,59 @@
+---
+# Create for the molecule-git-cgallagher driver (and for `driver: default` scenarios
+# that import it from a create.yml). Each platform is created by the role
+# named after its kind, in the order molecule.yml lists them; then the
+# instance config Molecule builds its inventory from is written.
+#
+# A kind is a role in this collection with `create`, `ready` and `destroy`
+# entry points. It reads molecule_platform (and molecule_lab_dir if it needs
+# disk), and its create appends instance-config entries to <kind>_instances.
+# Every platform's create runs before any platform's ready, so a kind's
+# create starts things and its ready waits for them.
+- name: Create the Molecule platforms
+  hosts: localhost
+  gather_facts: false
+  vars:
+    molecule_kinds: [docker, windows_vm]
+    # Box cache and VM disks: $MOLECULE_LAB_DIR, else ~/.cache/molecule-lab
+    # (CI points it at the runner's /mnt disk; a base config can set it in
+    # provisioner.env).
+    molecule_lab_dir: >-
+      {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
+         | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}
+  tasks:
+    - name: Require a known kind on every platform
+      ansible.builtin.assert:
+        that: item.kind | default('docker') in molecule_kinds
+        fail_msg: "Platform {{ item.name }}: unknown kind {{ item.kind | default('docker') }} (known: {{ molecule_kinds | join(', ') }})."
+        quiet: true
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the platforms
+      ansible.builtin.include_role:
+        name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
+        tasks_from: create
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: molecule_platform
+        label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"
+
+    # After every platform is created, so slow starts overlap: every VM is
+    # booting before the first one is waited for.
+    - name: Wait until the platforms are ready
+      ansible.builtin.include_role:
+        name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
+        tasks_from: ready
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: molecule_platform
+        label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"
+
+    - name: Write the Molecule instance config
+      ansible.builtin.copy:
+        dest: "{{ molecule_instance_config }}"
+        content: "{{ query('ansible.builtin.vars', *molecule_instance_vars, default=[]) | flatten(levels=1) | to_nice_yaml }}"
+        mode: "0600"
+      vars:
+        molecule_instance_vars: "{{ molecule_kinds | map('regex_replace', '$', '_instances') | list }}"

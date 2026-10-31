@@ -1,0 +1,79 @@
+---
+# Waits for the box's first boot, then gives its lab NICs their addresses.
+# Runs once every platform has been created, so the VMs boot side by side.
+- name: Work out paths
+  ansible.builtin.set_fact:
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+
+- name: Work out the NICs
+  ansible.builtin.include_tasks: lab_nics.yml
+
+# The box's first boot runs OOBE, rearms the evaluation licence, reboots,
+# then recreates the WinRM listeners and finally deletes C:\temp\setup.ps1.
+# WinRM answers *during* that sequence, so "port open" isn't "ready": poll
+# the marker from a fresh process each time, which a mid-poll reboot can't
+# break the way it would break an Ansible connection. The per-attempt
+# timeout matters: a call caught by that reboot can hang forever on a
+# half-open slirp connection (it hung one CI run for 40 minutes).
+- name: Wait for the box's first boot to finish (OOBE, rearm reboot, WinRM reset)
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv:
+      # coreutils timeout, not the task keyword: a timed-out task fails
+      # outright instead of being retried by `until`.
+      - timeout
+      - '40'
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import sys
+        from pypsrp.client import Client
+        client = Client(sys.argv[1], port=int(sys.argv[2]), username=sys.argv[3], password=sys.argv[4],
+                        ssl=False, auth="negotiate", connection_timeout=10)
+        out, _, _ = client.execute_ps("if (Test-Path -LiteralPath 'C:\\temp\\setup.ps1') { 'busy' } else { 'ready' }")
+        sys.exit(0 if out.strip() == "ready" else 3)
+      - 127.0.0.1
+      - "{{ molecule_platform.winrm_port }}"
+      - "{{ molecule_platform.box_user }}"
+      - "{{ molecule_platform.box_password }}"
+  register: windows_vm_first_boot
+  until: windows_vm_first_boot.rc == 0
+  retries: "{{ windows_vm_first_boot_retries }}"
+  delay: 10
+  failed_when: false
+  changed_when: false
+
+- name: Require the first boot to have finished
+  ansible.builtin.assert:
+    that: windows_vm_first_boot.rc == 0
+    fail_msg: >-
+      {{ molecule_platform.name }} didn't finish its first boot after {{ windows_vm_first_boot_retries }} polls (last attempt rc
+      {{ windows_vm_first_boot.rc }}{{ ' = timed out' if windows_vm_first_boot.rc == 124 else '' }}:
+      {{ windows_vm_first_boot.stderr | default('') | truncate(300) }}).
+      The monitor socket {{ windows_vm_monitor }} can take a screendump of where it stopped.
+    quiet: true
+
+# Each lab NIC is found by its MAC, renamed after its network, given its
+# static address and filed as a Private network. The management NIC is
+# renamed "management" and kept out of DNS: it has the same 10.0.2.15 on
+# every VM.
+- name: Configure the lab NICs
+  when: windows_vm_lab_nics | length > 0
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv:
+      - timeout
+      - '180'
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - "{{ windows_vm_psrp_run }}"
+      - 127.0.0.1
+      - "{{ molecule_platform.winrm_port }}"
+      - "{{ molecule_platform.box_user }}"
+      - "{{ molecule_platform.box_password }}"
+      - "{{ lookup('ansible.builtin.template', 'configure_lab_nics.ps1.j2') }}"
+  register: windows_vm_lab_config
+  until: windows_vm_lab_config.rc == 0
+  retries: 5
+  delay: 10
+  changed_when: "'changed' in (windows_vm_lab_config.stdout_lines | default([]))"

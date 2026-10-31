@@ -1,0 +1,59 @@
+---
+# Works out the platform's NICs, for create, ready and destroy alike.
+#
+# NIC 0 is QEMU user networking (WinRM and the forwards, on 127.0.0.1). Each
+# lab network adds a NIC on a hub (files/lab_hub.py) on 127.0.0.1: hub port P,
+# member ports P+1.. in the order molecule.yml lists the network's VMs. P comes
+# from the scenario directory and the network name; MAC addresses from those
+# and the platform name, so every NIC is unique on its segment and stable
+# across runs.
+- name: Start from no hub ports
+  ansible.builtin.set_fact:
+    windows_vm_hub_ports: {}
+
+- name: Work out every lab network's hub port
+  ansible.builtin.set_fact:
+    windows_vm_hub_ports: >-
+      {{ windows_vm_hub_ports | combine({item: 20000
+         + ((windows_vm_scenario_key ~ ':' ~ item) | hash('md5'))[0:6] | int(base=16) % 2500 * 16}) }}
+  loop: >-
+    {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | map(attribute='lab_networks')
+       | flatten | map(attribute='name') | unique | list }}
+
+- name: Start from the management NIC
+  ansible.builtin.set_fact:
+    windows_vm_mgmt_mac: "{{ '52:54:00:' ~ [windows_vm_hash[0:2], windows_vm_hash[2:4], windows_vm_hash[4:6]] | join(':') }}"
+    windows_vm_lab_nics: []
+  vars:
+    windows_vm_hash: "{{ (windows_vm_scenario_key ~ ':' ~ molecule_platform.name ~ ':management') | hash('md5') }}"
+
+- name: Add a NIC per lab network
+  ansible.builtin.set_fact:
+    windows_vm_lab_nics: "{{ windows_vm_lab_nics + [windows_vm_nic] }}"
+  loop: "{{ molecule_platform.lab_networks | default([]) }}"
+  loop_control:
+    loop_var: windows_vm_net
+    index_var: windows_vm_net_index
+    label: "{{ windows_vm_net.name }}"
+  vars:
+    windows_vm_members: >-
+      {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
+         | selectattr('1.name', 'equalto', windows_vm_net.name) | map(attribute='0.name') | list }}
+    windows_vm_hub_port: "{{ windows_vm_hub_ports[windows_vm_net.name] }}"
+    windows_vm_port: "{{ windows_vm_hub_port | int + 1 + windows_vm_members.index(molecule_platform.name) }}"
+    windows_vm_hash: "{{ (windows_vm_scenario_key ~ ':' ~ molecule_platform.name ~ ':' ~ windows_vm_net.name) | hash('md5') }}"
+    windows_vm_mac: "{{ '52:54:00:' ~ [windows_vm_hash[0:2], windows_vm_hash[2:4], windows_vm_hash[4:6]] | join(':') }}"
+    windows_vm_nic:
+      name: "{{ windows_vm_net.name }}"
+      ipv4_address: "{{ windows_vm_net.ipv4_address }}"
+      prefix_length: "{{ windows_vm_net.prefix_length | default(24) | int }}"
+      mac: "{{ windows_vm_mac }}"
+      hub_port: "{{ windows_vm_hub_port | int }}"
+      port: "{{ windows_vm_port | int }}"
+      member_ports: "{{ range(windows_vm_hub_port | int + 1, windows_vm_hub_port | int + 1 + windows_vm_members | length) | list }}"
+      hub_pidfile: "{{ windows_vm_dir }}/hub-{{ windows_vm_hub_port }}.pid"
+      qemu_args:
+        - -netdev
+        - "socket,id=lab{{ windows_vm_net_index }},udp=127.0.0.1:{{ windows_vm_hub_port }},localaddr=127.0.0.1:{{ windows_vm_port }}"
+        - -device
+        - "virtio-net-pci,netdev=lab{{ windows_vm_net_index }},mac={{ windows_vm_mac }}"

@@ -1,0 +1,61 @@
+---
+- name: Check the forest
+  hosts: dc01
+  gather_facts: false
+  tasks:
+    - name: Read the domain and its DNS zone
+      ansible.windows.win_powershell:
+        script: |
+          param([string]$Domain)
+          $Ansible.Changed = $false
+          [ordered]@{
+              dns_root = (Get-ADDomain).DNSRoot
+              zone     = (Get-DnsServerZone -Name $Domain).ZoneName
+              admin    = @(Get-ADGroupMember -Identity 'Domain Admins' | ForEach-Object { $_.SamAccountName }) -contains $env:USERNAME
+          }
+        parameters:
+          Domain: "{{ lab_domain }}"
+      register: dc_domain
+
+    - name: Require the domain, its zone and a Domain Admin connection
+      ansible.builtin.assert:
+        that:
+          - dc_domain.output[0].dns_root == lab_domain
+          - dc_domain.output[0].zone == lab_domain
+          - dc_domain.output[0].admin
+
+# The container shares the runner's network namespace, so the DC's forwarded
+# DNS port on 127.0.0.1 is reachable from it, as Kea reaches it in
+# git_cgallagher.isc's ms-dns scenario.
+- name: Query the DC's DNS from the container through the port forward
+  hosts: molecule-client
+  gather_facts: false
+  tasks:
+    - name: Ask for the domain controllers' LDAP SRV record
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import socket, struct, sys
+            name, port = sys.argv[1], int(sys.argv[2])
+            query = struct.pack(">HHHHHH", 0x7e57, 0x0100, 1, 0, 0, 0)
+            query += b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\0"
+            query += struct.pack(">HH", 33, 1)  # SRV, IN
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(5)
+            s.sendto(query, ("127.0.0.1", port))
+            reply = s.recv(4096)
+            _, flags, _, answers, _, _ = struct.unpack(">HHHHHH", reply[:12])
+            print(flags & 0xF, answers)
+          - "_ldap._tcp.dc._msdcs.{{ lab_domain }}"
+          - "{{ lab_dns_port }}"
+      register: dc_srv
+      changed_when: false
+
+    - name: Require NOERROR and at least one answer
+      ansible.builtin.assert:
+        that:
+          - dc_srv.stdout.split()[0] == '0'
+          - dc_srv.stdout.split()[1] | int > 0
+        fail_msg: "rcode, answers = {{ dc_srv.stdout }}"

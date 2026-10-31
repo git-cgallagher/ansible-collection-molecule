@@ -1,0 +1,27 @@
+---
+# Destroy for the molecule-git-cgallagher driver: each platform's kind role, in
+# reverse order. Safe when nothing exists (Molecule destroys before create,
+# too), so it reads molecule.yml, not the instance config.
+- name: Destroy the Molecule platforms
+  hosts: localhost
+  gather_facts: false
+  vars:
+    molecule_kinds: [docker, windows_vm]
+    molecule_lab_dir: >-
+      {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
+         | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}
+  tasks:
+    - name: Destroy the platforms
+      ansible.builtin.include_role:
+        name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
+        tasks_from: destroy
+      loop: "{{ molecule_yml.platforms | reverse | list }}"
+      loop_control:
+        loop_var: molecule_platform
+        label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"
+      when: molecule_platform.kind | default('docker') in molecule_kinds
+
+    - name: Remove the Molecule instance config
+      ansible.builtin.file:
+        path: "{{ molecule_instance_config }}"
+        state: absent

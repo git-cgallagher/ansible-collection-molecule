@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly: catches Molecule, ansible-core, image and collection changes.
+  schedule:
+    - cron: '0 13 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PY_COLORS: '1'
+  ANSIBLE_FORCE_COLOR: '1'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.13'
+      - run: |
+          pip install ansible-core ansible-lint yamllint
+          ansible-galaxy collection install -r extensions/molecule/requirements.yml
+      - run: yamllint .
+      - run: ansible-lint
+
+  sanity:
+    name: sanity (${{ matrix.ansible-core-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible-core-version: [stable-2.18, stable-2.19, stable-2.20, stable-2.21]
+    steps:
+      - uses: ansible-community/ansible-test-gh-action@6ded727edb598e670ac056a8e680ca4050bac0a3  # v1.18.0
+        with:
+          ansible-core-version: ${{ matrix.ansible-core-version }}
+          testing-type: sanity
+
+  # devel's test container can't start on GitHub runners (ansible-test fails
+  # remounting /sys/fs/cgroup), so devel sanity runs without one, as in
+  # git_cgallagher.orchestration. An early warning, never a merge gate; on
+  # the scheduled run a failure fails the run, so it isn't missed.
+  sanity-devel:
+    name: sanity (devel, venv)
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name != 'schedule' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: ansible_collections/git_cgallagher/molecule
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install ansible-core devel
+        run: pip install https://github.com/ansible/ansible/archive/devel.tar.gz
+      - name: Run sanity tests
+        working-directory: ansible_collections/git_cgallagher/molecule
+        run: ansible-test sanity --venv --python 3.14 --requirements --color -v
+
+  # The driver end to end on Docker: scenarios with only platforms in their
+  # molecule.yml, set up by this repo's own setup-molecule action.
+  molecule:
+    name: molecule ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [docker_smoke, docker_full]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-molecule
+        with:
+          collection: git_cgallagher.molecule
+          requirements: extensions/molecule/requirements.yml
+      - run: molecule test -s ${{ matrix.scenario }}

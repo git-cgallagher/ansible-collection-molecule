@@ -1,0 +1,28 @@
+---
+- name: Check the instance config Molecule built the inventory from
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Read the instance config
+      ansible.builtin.set_fact:
+        smoke_instances: "{{ lookup('ansible.builtin.file', molecule_instance_config) | from_yaml }}"
+
+    - name: Require one docker-connection entry per platform
+      ansible.builtin.assert:
+        that:
+          - smoke_instances | map(attribute='instance') | sort == ['molecule-smoke1', 'molecule-smoke2']
+          - smoke_instances | map(attribute='connection') | unique == ['community.docker.docker']
+        fail_msg: "{{ smoke_instances | to_json }}"
+
+- name: Check the platform options reached docker run
+  hosts: molecule-smoke2
+  gather_facts: false
+  tasks:
+    - name: Read the hostname
+      ansible.builtin.command: hostname
+      register: smoke_hostname
+      changed_when: false
+
+    - name: Require the platform's hostname
+      ansible.builtin.assert:
+        that: smoke_hostname.stdout == 'smoke2.example.test'

@@ -1,0 +1,123 @@
+---
+# The docker kind: one container per platform, through the docker CLI (no
+# Docker SDK for Python on the controller). Appends the platform's Molecule
+# instance-config entry to docker_instances.
+- name: Check the platform's keys
+  ansible.builtin.assert:
+    that:
+      - docker_unsupported | length == 0
+      - molecule_platform.image is defined
+      - (molecule_platform.pre_build_image | default(molecule_platform.dockerfile is undefined) | bool) == (molecule_platform.dockerfile is undefined)
+      - not (molecule_platform.network_mode is defined and molecule_platform.networks is defined)
+    fail_msg: >-
+      Platform {{ molecule_platform.name }} (kind docker):
+      {{ ('unsupported key(s) ' ~ docker_unsupported | join(', ') ~ '; supported: ' ~ docker_platform_keys | join(', ') ~ '.')
+         if docker_unsupported else 'needs image; pre_build_image must be false exactly when dockerfile is set; network_mode excludes networks.' }}
+    quiet: true
+  vars:
+    docker_unsupported: "{{ molecule_platform.keys() | difference(docker_platform_keys) }}"
+
+# --- networks (shared by platforms that list them; created once) --------------
+- name: Look for the platform's Docker networks
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: [docker, network, inspect, "{{ item.name }}"]
+  loop: "{{ molecule_platform.docker_networks | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: docker_network_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Create the missing networks
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['docker', 'network', 'create', '--label', 'owner=molecule']
+         + (item.item.ipam_config | default([]) | map(attribute='subnet') | map('regex_replace', '^', '--subnet=') | list)
+         + (item.item.ipam_config | default([]) | selectattr('gateway', 'defined') | map(attribute='gateway')
+            | map('regex_replace', '^', '--gateway=') | list)
+         + [item.item.name] }}
+  loop: "{{ docker_network_inspect.results | rejectattr('rc', 'equalto', 0) | list }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  changed_when: true
+
+# --- image -----------------------------------------------------------------------
+# Built from the scenario directory as the context. Unlike the docker driver,
+# the Dockerfile isn't a Jinja template, and the image keeps its own name
+# (no molecule_local/ prefix).
+- name: Build the image
+  when: molecule_platform.dockerfile is defined
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['docker', 'build', '--tag', molecule_platform.image,
+          '--file', docker_scenario_directory ~ '/' ~ molecule_platform.dockerfile]
+         + (['--platform', molecule_platform.platform] if molecule_platform.platform is defined else [])
+         + [docker_scenario_directory] }}
+  changed_when: true
+
+# Always pull a prebuilt image: a stale :latest, or a locally cached tag of
+# another architecture, would otherwise be used as is.
+- name: Pull the image
+  when: molecule_platform.dockerfile is undefined
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['docker', 'pull']
+         + (['--platform', molecule_platform.platform] if molecule_platform.platform is defined else [])
+         + [molecule_platform.image] }}
+  register: docker_pull
+  changed_when: "'Downloaded newer image' in docker_pull.stdout"
+
+# --- container -------------------------------------------------------------------
+- name: Start the container
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['docker', 'run', '--detach', '--name', molecule_platform.name,
+          '--hostname', molecule_platform.hostname | default(molecule_platform.name), '--label', 'owner=molecule']
+         + (['--platform', molecule_platform.platform] if molecule_platform.platform is defined else [])
+         + (['--privileged'] if molecule_platform.privileged | default(false) | bool else [])
+         + (['--cgroupns', molecule_platform.cgroupns_mode] if molecule_platform.cgroupns_mode is defined else [])
+         + (molecule_platform.volumes | default([]) | map('regex_replace', '^', '--volume=') | list)
+         + (molecule_platform.tmpfs | default([]) | map('regex_replace', '^', '--tmpfs=') | list)
+         + ((molecule_platform.env | default({})).items() | map('join', '=') | map('regex_replace', '^', '--env=') | list)
+         + (['--network', molecule_platform.network_mode] if molecule_platform.network_mode is defined else [])
+         + (['--network', docker_first_network.name] if docker_first_network else [])
+         + (['--ip', docker_first_network.ipv4_address] if docker_first_network.ipv4_address | default('') else [])
+         + (molecule_platform.published_ports | default([]) | map('regex_replace', '^', '--publish=') | list)
+         + [molecule_platform.image]
+         + docker_command }}
+  vars:
+    docker_first_network: "{{ (molecule_platform.networks | default([]))[0] | default({}) }}"
+    # Like the docker driver: no command key = a long sleep (so images that
+    # would exit stay up); "" or override_command: false = the image's CMD.
+    docker_command_raw: "{{ molecule_platform.command | default('sleep infinity') }}"
+    docker_command: >-
+      {{ [] if not (molecule_platform.override_command | default(true) | bool) or docker_command_raw == ''
+         else (docker_command_raw.split() if docker_command_raw is string else docker_command_raw) }}
+  changed_when: true
+
+- name: Connect the container to its other networks
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['docker', 'network', 'connect']
+         + (['--ip', item.ipv4_address] if item.ipv4_address | default('') else [])
+         + [item.name, molecule_platform.name] }}
+  loop: "{{ (molecule_platform.networks | default([]))[1:] }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: true
+
+# Appended, so a looped include_role collects one entry per container.
+- name: Add the container to the Molecule instance-config entries
+  ansible.builtin.set_fact:
+    docker_instances: "{{ docker_instances | default([]) + [docker_instance] }}"
+  vars:
+    docker_instance:
+      instance: "{{ molecule_platform.name }}"
+      address: "{{ molecule_platform.name }}"
+      connection: community.docker.docker

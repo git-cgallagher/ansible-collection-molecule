@@ -1,0 +1,36 @@
+---
+argument_specs:
+  main:
+    short_description: Boot a windows_vm-kind platform (alias of the create entry point)
+    options: &windows_vm_options
+      molecule_platform:
+        type: dict
+        required: true
+        description:
+          - One Molecule platform of kind C(windows_vm). Required keys are C(name), C(box_url),
+            C(box_sha256), C(box_user), C(box_password) and C(winrm_port); optional C(memory_mb)
+            (default 4096), C(cpus) (default 2), C(forwards), a list of C({port, guest_port, protocols}), and
+            C(lab_networks), a list of C({name, ipv4_address, prefix_length}) shared with the scenario's other
+            VMs on the same network name. Any other key fails (C(windows_vm_platform_keys) in C(vars/main.yml)).
+      windows_vm_dir:
+        type: path
+        description:
+          - Box cache, VM disk, pidfile and QEMU monitor socket.
+          - Defaults to C(molecule_lab_dir) (set by the create/destroy playbooks), else C(~/.cache/molecule-lab).
+      windows_vm_name_prefix:
+        type: str
+        default: molecule
+        description: Prefix of the QEMU process name.
+      windows_vm_first_boot_retries:
+        type: int
+        default: 90
+        description: Polls (10 s apart) of the box's first boot before giving up.
+  create:
+    short_description: Boot a Windows box under QEMU/KVM and append its entry to C(windows_vm_instances)
+    options: *windows_vm_options
+  ready:
+    short_description: Wait for the box's first boot, then configure its lab NICs
+    options: *windows_vm_options
+  destroy:
+    short_description: Stop the VM and remove its disk (the box cache stays)
+    options: *windows_vm_options

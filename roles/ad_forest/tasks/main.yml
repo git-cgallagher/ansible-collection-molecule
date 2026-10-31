@@ -1,0 +1,119 @@
+---
+# Promotes a fresh Windows Server to the first DC of a new forest. The box's
+# local accounts become domain accounts on promotion, so the connection keeps
+# working as the same user (PSRP + NTLM, which unlike Basic auth works for
+# domain accounts).
+- name: Wait for the connection
+  ansible.builtin.wait_for_connection:
+    timeout: 600
+
+- name: Quiet the VM (Windows Update off, Defender real-time scanning off)
+  when: ad_forest_quiet | bool
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
+      Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
+      try {
+          Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+      }
+      catch {
+          $Ansible.Result = "Defender not changed: $($_.Exception.Message)"
+      }
+
+- name: Name the host
+  when: ad_forest_hostname | length > 0
+  block:
+    - name: Set the hostname
+      ansible.windows.win_hostname:
+        name: "{{ ad_forest_hostname }}"
+      register: ad_forest_rename
+
+    - name: Reboot after the rename
+      ansible.windows.win_reboot:
+        reboot_timeout: 900
+      when: ad_forest_rename.reboot_required
+
+- name: Point DNS at itself (the DC will host the domain's DNS)
+  ansible.windows.win_dns_client:
+    adapter_names: '*'
+    dns_servers: [127.0.0.1]
+
+- name: Install the Windows features
+  ansible.windows.win_feature:
+    name: "{{ ad_forest_features }}"
+    include_management_tools: true
+    state: present
+
+- name: Create the forest
+  microsoft.ad.domain:
+    dns_domain_name: "{{ ad_forest_domain }}"
+    domain_netbios_name: "{{ ad_forest_netbios }}"
+    safe_mode_password: "{{ ad_forest_dsrm_password }}"
+    install_dns: "{{ ad_forest_install_dns if ad_forest_install_dns is not none else omit }}"
+    reboot: false
+  register: ad_forest_result
+
+# "Available" means the modules load and ADWS answers, plus the caller's
+# test, not merely "WinRM is up". Any error must exit non-zero.
+- name: Reboot and wait until AD is available
+  ansible.windows.win_reboot:
+    reboot_timeout: 1800
+    test_command: |
+      try {
+      Import-Module {{ ad_forest_ready_modules | join(', ') }} -ErrorAction Stop
+      $null = Get-ADDomain -ErrorAction Stop
+      {{ ad_forest_ready_test }}
+      exit 0
+      } catch { exit 1 }
+  when: ad_forest_result.reboot_required | default(false)
+
+- name: Wait until the domain SYSVOL path resolves
+  when: ad_forest_wait_sysvol_path | bool
+  ansible.windows.win_powershell:
+    script: |
+      param([string]$Domain)
+      $Ansible.Changed = $false
+      if (-not (Test-Path -LiteralPath "\\$Domain\SYSVOL\$Domain\Policies")) {
+          throw "\\$Domain\SYSVOL\$Domain\Policies doesn't resolve yet"
+      }
+    parameters:
+      Domain: "{{ ad_forest_domain }}"
+  register: ad_forest_sysvol_path
+  until: ad_forest_sysvol_path is succeeded
+  retries: 60
+  delay: 10
+
+- name: Add the connection account to the admin groups
+  ansible.windows.win_powershell:
+    script: |
+      param([string[]]$Groups)
+      $Ansible.Changed = $false
+      foreach ($group in $Groups) {
+          $members = @(Get-ADGroupMember -Identity $group | ForEach-Object { $_.SamAccountName })
+          if ($members -notcontains $env:USERNAME) {
+              Add-ADGroupMember -Identity $group -Members $env:USERNAME
+              $Ansible.Changed = $true
+          }
+      }
+    parameters:
+      Groups: "{{ ad_forest_admin_groups }}"
+  register: ad_forest_groups
+
+# The PSRP session's logon token predates the membership change.
+- name: Reconnect so the new group membership is in the logon token
+  ansible.builtin.meta: reset_connection
+
+- name: Set the DC's clock from the controller
+  when: ad_forest_sync_clock | bool
+  ansible.windows.win_powershell:
+    parameters:
+      Epoch: "{{ now(utc=true).timestamp() | int }}"
+    script: |
+      param([long]$Epoch)
+      $target = [DateTimeOffset]::FromUnixTimeSeconds($Epoch).UtcDateTime
+      $skew = [math]::Abs(([DateTime]::UtcNow - $target).TotalSeconds)
+      $Ansible.Result = [math]::Round($skew)
+      $Ansible.Changed = $skew -gt 30
+      if ($Ansible.Changed) { Set-Date -Date $target.ToLocalTime() | Out-Null }
+  register: ad_forest_clock

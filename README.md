@@ -1,0 +1,175 @@
+# git_cgallagher.molecule — a shared Molecule driver
+
+One Molecule driver for every `git_cgallagher` collection and role. A scenario
+only describes its platforms; the driver creates and destroys them.
+
+- **`molecule-git-cgallagher`**, a Molecule driver plugin (pip). Its bundled create and
+  destroy import the collection's playbooks, so scenarios need no `create.yml`
+  or `destroy.yml`. (It can't be called plain `molecule`: Molecule only accepts
+  third-party driver names starting `molecule-` or `custom-`, and the pip package
+  `molecule` is Molecule itself.)
+- **`git_cgallagher.molecule`**, the collection that does the work (Galaxy/git).
+  It dispatches each platform by `kind` to the role of that name:
+
+  | kind | role | creates | needs |
+  |---|---|---|---|
+  | `docker` (default) | `git_cgallagher.molecule.docker` | a container through the docker CLI, plus its networks and Dockerfile build | Docker |
+  | `windows_vm` | `git_cgallagher.molecule.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1; several per scenario, on shared lab networks for clusters | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
+
+  Plus **`git_cgallagher.molecule.ad_forest`**, a prepare-time role that promotes a
+  `windows_vm` to the first DC of a new forest.
+- **`setup-molecule`**, a composite GitHub Action that installs Python, ansible-core,
+  Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked).
+
+## A scenario
+
+`extensions/molecule/config.yml` (collection-level scenarios) or
+`.config/molecule/config.yml` (per-role scenarios, or a standalone role repo) holds what every
+scenario shares. Molecule merges it under each `molecule.yml`:
+
+```yaml
+# .config/molecule/config.yml (scenarios in roles/<role>/molecule/, run from the role)
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/../../requirements.yml
+driver:
+  name: molecule-git-cgallagher
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_COLLECTIONS_PATH: ${MOLECULE_PROJECT_DIRECTORY}/../../.molecule-collections:~/.ansible/collections
+verifier:
+  name: ansible
+```
+
+A scenario is then its platforms, a `converge.yml` and a `verify.yml`:
+
+```yaml
+# roles/kea_dhcp/molecule/ha3/molecule.yml
+platforms:
+  - name: kea1
+    image: public.ecr.aws/amazonlinux/amazonlinux:2023-minimal
+    platform: linux/amd64
+    docker_networks:
+      - name: kea-ha3
+        ipam_config: [{subnet: 172.29.30.0/24, gateway: 172.29.30.1}]
+    networks: [{name: kea-ha3, ipv4_address: 172.29.30.11}]
+```
+
+```yaml
+# a Windows DC next to a container on the host network
+platforms:
+  - name: dc01
+    kind: windows_vm
+    box_url: https://vagrantcloud.com/jborean93/boxes/WindowsServer2022/versions/1.2.0/providers/libvirt/amd64/vagrant.box
+    box_sha256: bc2e6a173390d4457e66ba30d5ffff7dbc87b849532bc0f41f4c1246f4e53bd4
+    box_user: vagrant
+    box_password: vagrant
+    winrm_port: 5985
+    forwards: [{port: 15353, guest_port: 53, protocols: [tcp, udp]}]
+  - name: client
+    image: python:3.13-slim
+    network_mode: host
+```
+
+### Platform keys
+
+**docker** uses molecule-plugins' docker-driver names, so existing platform definitions carry over:
+`image`, `platform`, `dockerfile` (+ `pre_build_image: false`), `hostname`, `command`
+(string or list; `""` keeps the image's CMD; default `sleep infinity`), `override_command`, `env`,
+`privileged`, `cgroupns_mode`, `volumes`, `tmpfs`, `network_mode`, `networks`, `docker_networks`,
+`published_ports`, plus Molecule's `groups`/`children`. **Any other key fails the run**, so a scenario
+can't stay green while ignoring a setting it relies on. Differences from the docker driver: the
+Dockerfile isn't a Jinja template, a built image keeps its own name (no `molecule_local/`), and
+prebuilt images are always pulled (for `platform`, that architecture).
+
+**windows_vm**: `box_url`, `box_sha256`, `box_user`, `box_password`, `winrm_port` (required),
+`memory_mb` (4096), `cpus` (2), `forwards`, `lab_networks`. The box is cached by checksum in the lab
+directory: `$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else
+`~/.cache/molecule-lab`.
+
+### Several VMs, and clusters
+
+A scenario can list several `windows_vm` platforms, each with its own `winrm_port` (and forward
+ports; a clash fails the run). They all start before the driver waits for any of them, so they boot
+side by side rather than one after another.
+
+Each VM's first NIC is QEMU user networking: it carries WinRM and the `forwards`, all on 127.0.0.1.
+It has the same address (10.0.2.15) on every VM and can't reach the others. For VM-to-VM traffic,
+give the VMs a **lab network**:
+
+```yaml
+platforms:
+  - name: node1
+    kind: windows_vm
+    # box_url, box_sha256, box_user, box_password ...
+    winrm_port: 15985
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.11}      # prefix_length: 24 by default
+  - name: node2
+    kind: windows_vm
+    # ...
+    winrm_port: 15986
+    lab_networks:
+      - {name: cluster, ipv4_address: 10.42.0.12}
+```
+
+VMs that list the same network name share an Ethernet segment, and a VM can be on several networks
+(cluster and storage, say). The driver adds one NIC per network, names it after the network in
+Windows, gives it the static address and files it as a Private network. On a VM with lab networks it
+also renames the first NIC `management` and keeps it out of DNS registration. It needs no root: each network is a small UDP hub on 127.0.0.1
+(`roles/windows_vm/files/lab_hub.py`) that QEMU's socket NICs talk to. Containers can't join a lab
+network; they reach VMs through the forwards.
+
+For a cluster lab, keep in mind:
+
+- **DNS for a domain join.** The management NIC's DHCP DNS (10.0.2.3) can't resolve the lab
+  domain. Point every adapter at the DC's lab address in prepare (`ansible.windows.win_dns_client`
+  with `adapter_names: '*'`).
+- **WSFC sees the management network on every node.** It has the same subnet on every node but
+  can't carry traffic between them, so take it out of cluster use (`(Get-ClusterNetwork <name>).Role
+  = 0`) and let the cluster run over the lab network.
+- **Memory.** GitHub's standard Linux runner has 4 vCPUs and 16 GB: room for about three VMs at
+  3–4 GB each (an estimate; the `windows_cluster` self-test runs two at 3 GB).
+
+## Install
+
+Locally, at one tag:
+
+```bash
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.1.0"
+```
+
+```bash
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.1.0
+```
+
+In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
+
+```yaml
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.1.0
+  with:
+    collection: git_cgallagher.isc
+    requirements: requirements.yml
+    # kvm: 'true'          # windows_vm platforms
+    # lab-dir: /mnt/lab    # their box cache and disks
+- run: molecule test -s ha3
+  working-directory: roles/kea_dhcp
+```
+
+Without the pip package, a scenario can use `driver: default` (`options: {managed: true}`) and a
+`create.yml`/`destroy.yml` that each hold one line,
+`ansible.builtin.import_playbook: git_cgallagher.molecule.create` (or `.destroy`).
+
+## Adding a kind
+
+A kind is a role in this collection with `create`, `ready` and `destroy` entry points. Each reads
+`molecule_platform` (one `molecule.yml` platform) and `molecule_lab_dir`. `create` checks the
+platform's keys, starts it and appends its Molecule instance-config entries to `<kind>_instances`;
+`ready` waits until it's usable (every platform's `create` runs before any `ready`). The kind is
+listed in `molecule_kinds` in `playbooks/create.yml` and `playbooks/destroy.yml`.
+
+## License
+
+MIT

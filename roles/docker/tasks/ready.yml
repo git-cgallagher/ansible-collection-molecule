@@ -1,0 +1,4 @@
+---
+# A container is usable as soon as docker run returns.
+- name: Nothing to wait for
+  ansible.builtin.meta: noop

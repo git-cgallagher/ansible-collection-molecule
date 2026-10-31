@@ -6,3 +6,6 @@ tests/output/
 *.tar.gz
 *.retry
 __pycache__/
+*.egg-info/
+build/
+dist/

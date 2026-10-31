@@ -1,0 +1,20 @@
+---
+# Base config Molecule merges under every scenario in this collection
+# (extensions/molecule/config.yml; a standalone role repo uses
+# .config/molecule/config.yml). Each scenario's molecule.yml then only
+# defines its platforms, plus inventory or a test_sequence when it differs.
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/extensions/molecule/requirements.yml
+driver:
+  name: molecule-git-cgallagher
+provisioner:
+  name: ansible
+  env:
+    # Expose this checkout as git_cgallagher.molecule (see AGENTS.md).
+    ANSIBLE_COLLECTIONS_PATH: ${MOLECULE_PROJECT_DIRECTORY}/.molecule-collections:${MOLECULE_PROJECT_DIRECTORY}/collections:~/.ansible/collections
+verifier:
+  name: ansible
+scenario:
+  test_sequence: [dependency, destroy, syntax, create, converge, idempotence, verify, destroy]

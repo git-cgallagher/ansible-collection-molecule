@@ -1,0 +1,19 @@
+---
+# Input (the kind contract, set by git_cgallagher.molecule.create/destroy):
+# molecule_platform, one entry of molecule_yml.platforms. Its keys are listed
+# in vars/main.yml.
+
+# Box cache, VM disk, pidfile and monitor socket. Needs ~20 GB free while the
+# box isn't cached, ~8 GB after (CI points it at the runner's /mnt disk).
+windows_vm_dir: "{{ molecule_lab_dir | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}"
+
+# QEMU's -name, and the prefix ps/top show for the VM process.
+windows_vm_name_prefix: molecule
+
+# Keys the lab network hub ports and NIC MAC addresses: scenarios running at
+# the same time on one host get different hubs.
+windows_vm_scenario_key: "{{ molecule_scenario_directory | default(lookup('ansible.builtin.env', 'MOLECULE_SCENARIO_DIRECTORY'), true) }}"
+
+# Polls of the box's first boot (OOBE, licence rearm, reboot, WinRM reset),
+# 10 s apart.
+windows_vm_first_boot_retries: 90

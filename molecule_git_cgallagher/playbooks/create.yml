@@ -1,0 +1,5 @@
+---
+# Bundled create for the molecule-git-cgallagher driver: the logic lives in the collection.
+# "Could not find playbook" here means git_cgallagher.molecule isn't installed.
+- name: Create
+  ansible.builtin.import_playbook: git_cgallagher.molecule.create

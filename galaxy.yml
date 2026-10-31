@@ -1,0 +1,44 @@
+namespace: git_cgallagher
+name: molecule
+version: 0.1.0
+readme: README.md
+authors:
+  - Chris Gallagher (@git-cgallagher)
+description: >-
+  Shared Molecule test-lab plumbing for the git_cgallagher collections: a
+  delegated-driver create/destroy for Windows Server VMs under QEMU/KVM and
+  plain Docker containers, and a role that promotes a test VM to a new AD forest.
+license:
+  - MIT
+tags:
+  - molecule
+  - testing
+  - windows
+  - qemu
+  - activedirectory
+dependencies:
+  ansible.windows: '>=2.0.0'      # ad_forest, and the psrp connection's Windows modules
+  microsoft.ad: '>=1.6.0'         # ad_forest: microsoft.ad.domain
+  community.docker: '>=3.0.0'     # the docker connection to container platforms
+repository: https://github.com/git-cgallagher/ansible-collection-molecule
+documentation: https://github.com/git-cgallagher/ansible-collection-molecule#readme
+issues: https://github.com/git-cgallagher/ansible-collection-molecule/issues
+build_ignore:
+  - .github
+  - .ansible
+  - collections
+  - extensions/molecule
+  - .molecule-collections
+  - tests
+  - '*.tar.gz'
+  - .ansible-lint
+  - .yamllint
+  - .gitignore
+  - AGENTS.md
+  - docs
+  # The molecule-git-cgallagher driver ships through pip (pyproject.toml), not Galaxy.
+  - pyproject.toml
+  - molecule_git_cgallagher
+  - '*.egg-info'
+  - build
+  - dist

@@ -1,0 +1,19 @@
+---
+- name: Promote the VM to the first DC of a new forest, with Microsoft DNS
+  hosts: dc01
+  gather_facts: false
+  tasks:
+    - name: Promote
+      ansible.builtin.include_role:
+        name: git_cgallagher.molecule.ad_forest
+      vars:
+        ad_forest_domain: "{{ lab_domain }}"
+        ad_forest_netbios: MOLECULELAB
+        # Throwaway VM reachable only on the runner's loopback.
+        ad_forest_dsrm_password: Example-not-secret-1
+        ad_forest_hostname: dc01
+        ad_forest_features: [AD-Domain-Services, DNS, RSAT-AD-PowerShell, RSAT-DNS-Server]
+        ad_forest_install_dns: true
+        ad_forest_ready_modules: [ActiveDirectory, DnsServer]
+        ad_forest_ready_test: "$null = Get-DnsServerZone -Name '{{ lab_domain }}' -ErrorAction Stop"
+        ad_forest_sync_clock: true

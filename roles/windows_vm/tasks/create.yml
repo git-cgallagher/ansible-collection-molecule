@@ -1,0 +1,240 @@
+---
+# Starts a Windows box under QEMU/KVM on the controller, with its lab
+# network hubs, and appends its Molecule instance-config entry to
+# windows_vm_instances. It doesn't wait for the box: ready.yml does, once
+# every platform has started, so several VMs boot at the same time.
+# Replaces the copies of these tasks in git_cgallagher.windows' (formerly gpo)
+# tests/domain_lab and git_cgallagher.isc's kea_dhcp_msdns/windows scenario.
+- name: Check the platform's keys
+  ansible.builtin.assert:
+    that:
+      - windows_vm_unsupported | length == 0
+      - windows_vm_missing | length == 0
+    fail_msg: >-
+      Platform {{ molecule_platform.name }} (kind windows_vm):
+      {{ ('unsupported key(s) ' ~ windows_vm_unsupported | join(', ') ~ '; supported: ' ~ windows_vm_platform_keys | join(', ') ~ '. ')
+         if windows_vm_unsupported else '' }}{{ ('missing ' ~ windows_vm_missing | join(', ') ~ '.') if windows_vm_missing else '' }}
+    quiet: true
+  vars:
+    windows_vm_unsupported: "{{ molecule_platform.keys() | difference(windows_vm_platform_keys) }}"
+    windows_vm_missing: "{{ ['box_url', 'box_sha256', 'box_user', 'box_password', 'winrm_port'] | difference(molecule_platform.keys()) }}"
+
+# Several VMs in one scenario: each needs its own host ports.
+- name: Check the lab networks and host ports
+  ansible.builtin.assert:
+    that:
+      - windows_vm_net_unsupported | length == 0
+      - windows_vm_net_incomplete | length == 0
+      - windows_vm_port_clash | length == 0
+    fail_msg: >-
+      Platform {{ molecule_platform.name }} (kind windows_vm):
+      {{ ('lab_networks keys ' ~ windows_vm_net_unsupported | join(', ') ~ ' unsupported (supported: '
+          ~ windows_vm_lab_network_keys | join(', ') ~ '). ') if windows_vm_net_unsupported else '' }}{{
+         'every lab_networks entry needs name and ipv4_address. ' if windows_vm_net_incomplete else '' }}{{
+         ('host port(s) ' ~ windows_vm_port_clash | join(', ') ~ ' also used by another windows_vm platform.') if windows_vm_port_clash else '' }}
+    quiet: true
+  vars:
+    windows_vm_nets: "{{ molecule_platform.lab_networks | default([]) }}"
+    windows_vm_net_unsupported: >-
+      {{ windows_vm_nets | map('dict2items') | flatten | map(attribute='key') | unique
+         | difference(windows_vm_lab_network_keys) }}
+    windows_vm_net_incomplete: >-
+      {{ (windows_vm_nets | rejectattr('name', 'defined') | list)
+         + (windows_vm_nets | rejectattr('ipv4_address', 'defined') | list) }}
+    windows_vm_others: >-
+      {{ molecule_yml.platforms | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'windows_vm')
+         | rejectattr('name', 'equalto', molecule_platform.name) | list }}
+    windows_vm_port_clash: >-
+      {{ ([molecule_platform.winrm_port] + (molecule_platform.forwards | default([]) | map(attribute='port') | list))
+         | intersect((windows_vm_others | map(attribute='winrm_port') | list)
+                     + (windows_vm_others | selectattr('forwards', 'defined') | map(attribute='forwards') | flatten | map(attribute='port') | list)) }}
+
+- name: Check each lab network's addresses
+  ansible.builtin.assert:
+    that:
+      - windows_vm_addresses | length == windows_vm_addresses | unique | length
+      - windows_vm_addresses | length <= 15
+    fail_msg: >-
+      Lab network {{ item.name | default('?') }}: its VMs need distinct ipv4_address values
+      (got {{ windows_vm_addresses | join(', ') }}), and at most 15 VMs.
+    quiet: true
+  loop: "{{ molecule_platform.lab_networks | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    windows_vm_addresses: >-
+      {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
+         | selectattr('1.name', 'equalto', item.name) | map(attribute='1.ipv4_address') | list }}
+
+- name: Work out paths and port forwards
+  ansible.builtin.set_fact:
+    windows_vm_box_dir: "{{ windows_vm_dir }}/box-{{ molecule_platform.box_sha256[:12] }}"
+    windows_vm_box: "{{ windows_vm_dir }}/box-{{ molecule_platform.box_sha256[:12] }}/box.img"
+    windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    # WinRM for Ansible, on a 127.0.0.1 high port so nothing needs root.
+    windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ molecule_platform.winrm_port }}-:5985"]
+
+# Whatever else the scenario forwards (DNS, Kerberos, ...), per protocol:
+# forwards: [{port: 15353, guest_port: 53, protocols: [tcp, udp]}]
+- name: Add the platform's extra port forwards
+  ansible.builtin.set_fact:
+    windows_vm_hostfwds: "{{ windows_vm_hostfwds + ['hostfwd=' ~ item.1 ~ ':127.0.0.1:' ~ item.0.port ~ '-:' ~ item.0.guest_port] }}"
+  loop: "{{ molecule_platform.forwards | default([]) | subelements('protocols') }}"
+  loop_control:
+    label: "{{ item.1 }} {{ item.0.port }} -> {{ item.0.guest_port }}"
+
+- name: Work out the NICs
+  ansible.builtin.include_tasks: lab_nics.yml
+
+- name: Require a distinct hub per lab network
+  ansible.builtin.assert:
+    that: windows_vm_hub_ports.values() | list | unique | length == windows_vm_hub_ports | length
+    fail_msg: >-
+      Two lab networks in this scenario got the same hub port ({{ windows_vm_hub_ports | to_json }});
+      rename one of them.
+    quiet: true
+
+# --- fail fast, with messages that say what to fix ----------------------------
+- name: Check for /dev/kvm
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: windows_vm_kvm
+
+- name: Require a usable /dev/kvm
+  ansible.builtin.assert:
+    that:
+      - windows_vm_kvm.stat.exists
+      - windows_vm_kvm.stat.writeable
+    fail_msg: >-
+      /dev/kvm is missing or not writable by this user. A windows_vm platform
+      boots a Windows Server VM and needs hardware virtualization (a Linux host
+      or a GitHub ubuntu-latest runner, not macOS/Apple silicon).
+    quiet: true
+
+- name: Check that QEMU is installed
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: ["{{ item }}", --version]
+  loop: [qemu-system-x86_64, qemu-img]
+  changed_when: false
+
+- name: Ensure the lab directory exists
+  ansible.builtin.file:
+    path: "{{ windows_vm_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Look for a cached box image
+  ansible.builtin.stat:
+    path: "{{ windows_vm_box }}"
+  register: windows_vm_box_stat
+
+- name: Measure free space in the lab directory
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: [df, -Pk, "{{ windows_vm_dir }}"]
+  register: windows_vm_df
+  changed_when: false
+
+# ~6 GB download + ~6 GB extracted image while the box isn't cached, plus
+# headroom for the VM's copy-on-write disk.
+- name: Require enough free space
+  ansible.builtin.assert:
+    that: (windows_vm_df.stdout_lines[1].split()[3] | int) >= windows_vm_need_kb | int
+    fail_msg: >-
+      {{ windows_vm_dir }} has {{ ((windows_vm_df.stdout_lines[1].split()[3] | int) / 1048576) | round(1) }} GB free;
+      this run needs {{ (windows_vm_need_kb | int / 1048576) | round(0) }} GB. Point the lab directory at a bigger disk.
+    quiet: true
+  vars:
+    windows_vm_need_kb: "{{ (8 if windows_vm_box_stat.stat.exists else 20) * 1048576 }}"
+
+- name: Require the WinRM forward port to be free
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ molecule_platform.winrm_port }}"
+    state: stopped
+    timeout: 5
+    msg: >-
+      127.0.0.1:{{ molecule_platform.winrm_port }} is already in use (a VM
+      from a previous run?). Run `molecule destroy` for that scenario first.
+
+# --- box image (cached across runs, keyed by checksum) -------------------------
+- name: Fetch and unpack the box
+  when: not windows_vm_box_stat.stat.exists
+  block:
+    - name: Create the box cache directory
+      ansible.builtin.file:
+        path: "{{ windows_vm_box_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Download the box (checksum-pinned)
+      ansible.builtin.get_url:
+        url: "{{ molecule_platform.box_url }}"
+        dest: "{{ windows_vm_box_dir }}/box.download"
+        checksum: "sha256:{{ molecule_platform.box_sha256 }}"
+        tmp_dest: "{{ windows_vm_box_dir }}"
+        timeout: 600
+        mode: "0600"
+
+    # tar rather than unarchive: unarchive decompresses the archive twice
+    # (list, then extract), which costs minutes on a 6 GB box.
+    - name: Extract the disk image from the box  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv: [tar, -xzf, "{{ windows_vm_box_dir }}/box.download", -C, "{{ windows_vm_box_dir }}", ./box.img]
+        creates: "{{ windows_vm_box }}"
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "{{ windows_vm_box_dir }}/box.download"
+        state: absent
+
+# --- lab network hubs (one per network, started by its first VM) ---------------
+- name: Start the lab network hubs
+  ansible.builtin.include_tasks: hubs.yml
+
+# --- VM ------------------------------------------------------------------------
+- name: Create a copy-on-write disk on top of the box image
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: [qemu-img, create, -f, qcow2, -F, qcow2, -b, "{{ windows_vm_box }}", "{{ windows_vm_overlay }}"]
+    creates: "{{ windows_vm_overlay }}"
+
+# Machine type, BIOS boot, virtio disk/NIC and Hyper-V enlightenments match
+# how jborean93's packer-windoze boxes are built (roles/setup/tasks/qemu.yml).
+- name: Start the VM
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: >-
+      {{ ['qemu-system-x86_64',
+          '-name', windows_vm_name_prefix ~ '-' ~ molecule_platform.name,
+          '-machine', 'type=pc,accel=kvm',
+          '-cpu', 'host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time',
+          '-smp', molecule_platform.cpus | default(2) | string,
+          '-m', (molecule_platform.memory_mb | default(4096) | string) ~ 'M',
+          '-rtc', 'base=localtime',
+          '-drive', 'file=' ~ windows_vm_overlay ~ ',if=virtio,format=qcow2,cache=unsafe,discard=unmap',
+          '-netdev', 'user,id=net0,' ~ windows_vm_hostfwds | join(','),
+          '-device', 'virtio-net-pci,netdev=net0,mac=' ~ windows_vm_mgmt_mac]
+         + (windows_vm_lab_nics | map(attribute='qemu_args') | flatten)
+         + ['-display', 'none',
+            '-monitor', 'unix:' ~ windows_vm_monitor ~ ',server,nowait',
+            '-pidfile', windows_vm_pidfile,
+            '-daemonize'] }}
+  changed_when: true
+
+# Appended, so a looped include_role collects one entry per VM.
+- name: Add the VM to the Molecule instance-config entries
+  ansible.builtin.set_fact:
+    windows_vm_instances: "{{ windows_vm_instances | default([]) + [windows_vm_instance] }}"
+  vars:
+    windows_vm_instance:
+      instance: "{{ molecule_platform.name }}"
+      address: 127.0.0.1
+      port: "{{ molecule_platform.winrm_port }}"
+      user: "{{ molecule_platform.box_user }}"
+      password: "{{ molecule_platform.box_password }}"
+      connection: psrp

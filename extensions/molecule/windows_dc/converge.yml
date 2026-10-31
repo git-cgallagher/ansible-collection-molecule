@@ -1,0 +1,12 @@
+---
+- name: Reach every platform
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Ping the container
+      ansible.builtin.ping:
+      when: inventory_hostname != 'dc01'
+
+    - name: Ping the DC
+      ansible.windows.win_ping:
+      when: inventory_hostname == 'dc01'

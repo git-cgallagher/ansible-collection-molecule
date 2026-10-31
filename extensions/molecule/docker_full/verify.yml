@@ -1,0 +1,75 @@
+---
+- name: Check what docker run was given
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Inspect the containers
+      ansible.builtin.command:
+        argv: [docker, inspect, molecule-built, molecule-systemd, molecule-amd64]
+      register: full_inspect
+      changed_when: false
+
+    - name: Require the static IPs, env, tmpfs, volume, cgroupns and privileges
+      ansible.builtin.assert:
+        that:
+          - full_built.NetworkSettings.Networks['molecule-full'].IPAMConfig.IPv4Address == '172.31.99.11'
+          - full_systemd.NetworkSettings.Networks['molecule-full'].IPAMConfig.IPv4Address == '172.31.99.12'
+          - "'LAB_FOO=bar' in full_built.Config.Env"
+          - "'/scratch' in full_built.HostConfig.Tmpfs"
+          - full_built.Mounts | selectattr('Destination', 'equalto', '/data') | list | length == 1
+          - full_built.Config.Labels.owner == 'molecule'
+          - full_systemd.HostConfig.Privileged
+          - full_systemd.HostConfig.CgroupnsMode == 'host'
+          - full_amd64.NetworkSettings.Networks.keys() | list == ['bridge']
+        fail_msg: "{{ full_inspect.stdout | from_json | map(attribute='Name') | list }}"
+      vars:
+        full_built: "{{ (full_inspect.stdout | from_json)[0] }}"
+        full_systemd: "{{ (full_inspect.stdout | from_json)[1] }}"
+        full_amd64: "{{ (full_inspect.stdout | from_json)[2] }}"
+
+    - name: Reach the published port
+      ansible.builtin.uri:
+        url: http://127.0.0.1:18199/
+      register: full_http
+      until: full_http.status == 200
+      retries: 10
+      delay: 2
+
+- name: Check the built image and the platform options inside it
+  hosts: molecule-built
+  gather_facts: false
+  tasks:
+    - name: Read the build marker, hostname and env
+      ansible.builtin.command: sh -c 'test -e /built-by-dockerfile && hostname && echo "$LAB_FOO"'
+      register: full_built_out
+      changed_when: false
+
+    - name: Require them
+      ansible.builtin.assert:
+        that: full_built_out.stdout_lines == ['built.example.test', 'bar']
+
+- name: Check the image's own CMD ran (systemd as PID 1)
+  hosts: systemd
+  gather_facts: false
+  tasks:
+    - name: Read PID 1's name
+      ansible.builtin.command: cat /proc/1/comm
+      register: full_pid1
+      changed_when: false
+
+    - name: Require systemd
+      ansible.builtin.assert:
+        that: full_pid1.stdout == 'systemd'
+
+- name: Check the platform key picked the architecture
+  hosts: molecule-amd64
+  gather_facts: false
+  tasks:
+    - name: Read the machine type
+      ansible.builtin.command: uname -m
+      register: full_arch
+      changed_when: false
+
+    - name: Require x86-64
+      ansible.builtin.assert:
+        that: full_arch.stdout == 'x86_64'

@@ -1,0 +1,33 @@
+---
+# Platform keys the windows_vm kind understands; any other key fails the run
+# rather than being silently ignored.
+windows_vm_platform_keys:
+  - name
+  - kind
+  - groups        # Molecule's inventory groups (handled by Molecule)
+  - children
+  - box_url       # a libvirt Vagrant box (jborean93's packer-windoze builds)
+  - box_sha256    # required: the box is cached by checksum
+  - box_user
+  - box_password
+  - winrm_port    # host port on 127.0.0.1 forwarded to the guest's 5985
+  - memory_mb     # default 4096
+  - cpus          # default 2
+  - forwards      # [{port, guest_port, protocols: [tcp, udp]}], on 127.0.0.1
+  - lab_networks  # [{name, ipv4_address, prefix_length (24)}]: VM-to-VM segments
+
+# Keys of a lab_networks entry.
+windows_vm_lab_network_keys: [name, ipv4_address, prefix_length]
+
+# Runs one PowerShell script over PSRP in a fresh process (argv: host, port,
+# user, password, script); prints its output, exits 1 on any error record.
+windows_vm_psrp_run: |
+  import sys
+  from pypsrp.client import Client
+  client = Client(sys.argv[1], port=int(sys.argv[2]), username=sys.argv[3], password=sys.argv[4],
+                  ssl=False, auth="negotiate", connection_timeout=30)
+  out, streams, had_errors = client.execute_ps(sys.argv[5])
+  print(out)
+  if had_errors:
+      print("\n".join(str(record) for record in streams.error), file=sys.stderr)
+      sys.exit(1)

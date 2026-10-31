@@ -1,0 +1,5 @@
+---
+# Input (the kind contract, set by git_cgallagher.molecule.create/destroy):
+# molecule_platform, one entry of molecule_yml.platforms. Dockerfiles are
+# resolved against molecule_scenario_directory.
+docker_scenario_directory: "{{ molecule_scenario_directory | default(lookup('ansible.builtin.env', 'MOLECULE_SCENARIO_DIRECTORY'), true) }}"

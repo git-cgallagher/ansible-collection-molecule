@@ -1,0 +1,4 @@
+---
+# Bundled destroy for the molecule-git-cgallagher driver: the logic lives in the collection.
+- name: Destroy
+  ansible.builtin.import_playbook: git_cgallagher.molecule.destroy

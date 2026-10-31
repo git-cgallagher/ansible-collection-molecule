@@ -1,0 +1,34 @@
+---
+# Required: ad_forest_domain, ad_forest_netbios, ad_forest_dsrm_password.
+
+# Rename the host (and reboot) before promotion. Empty keeps the name the
+# sysprepped box picked; set it when something depends on the DC's FQDN
+# (Kerberos service principals, for one).
+ad_forest_hostname: ""
+
+# Windows features installed before promotion (management tools included).
+ad_forest_features: [AD-Domain-Services, RSAT-AD-PowerShell]
+
+# Passed to microsoft.ad.domain; null leaves Install-ADDSForest's default.
+ad_forest_install_dns: null
+
+# The post-promotion reboot waits until this PowerShell succeeds. Modules are
+# imported first and Get-ADDomain must answer; ad_forest_ready_test is extra
+# PowerShell run after that (throw, or exit non-zero, while not ready).
+ad_forest_ready_modules: [ActiveDirectory]
+ad_forest_ready_test: ""
+
+# Wait until \\<domain>\SYSVOL\<domain>\Policies resolves through DFS (GPMC
+# and Group Policy Preferences writes go through it; it lags the reboot).
+ad_forest_wait_sysvol_path: false
+
+# Groups the connection account joins; the connection is then reset so the
+# new membership is in its logon token.
+ad_forest_admin_groups: [Domain Admins]
+
+# Set the DC's clock from the controller. Kerberos tolerates 5 minutes of
+# skew; a lone PDC has no time source and starts from the host's RTC.
+ad_forest_sync_clock: false
+
+# Stop Windows Update and Defender real-time scanning (faster, quieter runs).
+ad_forest_quiet: true

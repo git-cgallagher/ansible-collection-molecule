@@ -1,0 +1,101 @@
+name: Set up Molecule with the molecule-git-cgallagher driver
+description: >-
+  Python, ansible-core, Molecule, the molecule-git-cgallagher driver and the
+  git_cgallagher.molecule collection (both from this action's own ref, so one
+  SHA pin versions all three), plus a collection's test requirements. Exposes
+  the checkout as <namespace>.<name> for Molecule; optionally enables KVM and
+  QEMU and a lab directory on the runner's large /mnt disk for windows_vm platforms.
+inputs:
+  collection:
+    description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections. Empty for a standalone role.
+    required: false
+    default: ''
+  requirements:
+    description: Collection requirement files to install, one per line.
+    required: false
+    default: ''
+  pip:
+    description: Extra pip packages, space-separated.
+    required: false
+    default: ''
+  ansible-core:
+    description: The ansible-core pip spec.
+    required: false
+    default: ansible-core
+  python-version:
+    description: Python for the controller.
+    required: false
+    default: '3.13'
+  kvm:
+    description: "'true' to enable /dev/kvm for the runner user and install QEMU and pypsrp (windows_vm platforms)."
+    required: false
+    default: 'false'
+  lab-dir:
+    description: >-
+      If set, create this directory (owned by the runner user) and export it as
+      MOLECULE_LAB_DIR. windows_vm needs ~20 GB, more than the root filesystem has; use /mnt/....
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Enable KVM and install QEMU
+      if: inputs.kvm == 'true'
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+          | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+        ls -l /dev/kvm
+
+    - name: Prepare the lab directory
+      if: inputs.lab-dir != ''
+      shell: bash
+      env:
+        LAB_DIR: ${{ inputs.lab-dir }}
+      run: |
+        sudo mkdir -p "$LAB_DIR"
+        sudo chown "$USER" "$LAB_DIR"
+        echo "MOLECULE_LAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
+        df -h "$LAB_DIR" /
+
+    # The action's own checkout is the whole repository at the pinned ref:
+    # the driver (pyproject.toml) and the collection (galaxy.yml) come from it.
+    - name: Install Ansible, Molecule, the driver and the collections
+      shell: bash
+      env:
+        CORE: ${{ inputs.ansible-core }}
+        EXTRA: ${{ inputs.pip }}
+        KVM: ${{ inputs.kvm }}
+        REQUIREMENTS: ${{ inputs.requirements }}
+      run: |
+        root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
+        driver=$root; [ "$KVM" = true ] && driver="$root[windows]"
+        read -ra extra <<< "$EXTRA"
+        pip install "$CORE" molecule "$driver" "${extra[@]}"
+        molecule --version
+        ansible-galaxy collection install --force "$root"
+        while IFS= read -r req; do
+          if [ -n "$req" ]; then
+            ansible-galaxy collection install -r "$req"
+          fi
+        done <<< "$REQUIREMENTS"
+
+    # Molecule runs the roles as <namespace>.<name>.<role>; the base config's
+    # ANSIBLE_COLLECTIONS_PATH puts .molecule-collections first.
+    - name: Expose the checkout as ${{ inputs.collection }}
+      if: inputs.collection != ''
+      shell: bash
+      env:
+        FQCN: ${{ inputs.collection }}
+      run: |
+        ns=${FQCN%%.*}; name=${FQCN#*.}
+        mkdir -p ".molecule-collections/ansible_collections/$ns"
+        ln -sfn ../../.. ".molecule-collections/ansible_collections/$ns/$name"
