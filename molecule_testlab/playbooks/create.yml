@@ -1,0 +1,5 @@
+---
+# Bundled create for the testlab driver: the logic lives in the collection.
+# "Could not find playbook" here means git_cgallagher.testlab isn't installed.
+- name: Create
+  ansible.builtin.import_playbook: git_cgallagher.testlab.create

@@ -1,0 +1,29 @@
+---
+# Safe when nothing exists (Molecule destroys before create, too).
+- name: Remove the container
+  ansible.builtin.command:
+    argv: [docker, rm, --force, --volumes, "{{ testlab_platform.name }}"]
+  register: docker_rm
+  changed_when: docker_rm.rc == 0
+  failed_when: false
+
+# A network goes once no container is attached, i.e. with the last platform
+# that lists it.
+- name: Look for the platform's Docker networks
+  ansible.builtin.command:
+    argv: [docker, network, inspect, "{{ item.name }}"]
+  loop: "{{ testlab_platform.docker_networks | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: docker_network_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Remove the networks no container uses any more
+  ansible.builtin.command:
+    argv: [docker, network, rm, "{{ item.item.name }}"]
+  loop: "{{ docker_network_inspect.results | selectattr('rc', 'equalto', 0) | list }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: (item.stdout | from_json)[0].Containers | default({}) | length == 0
+  changed_when: true

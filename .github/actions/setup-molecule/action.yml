@@ -1,0 +1,91 @@
+name: Set up Molecule
+description: >-
+  Python, ansible-core, Molecule and a collection's test requirements; exposes
+  the checkout as <namespace>.<name> for Molecule; optionally KVM + QEMU and a
+  lab directory on the runner's large /mnt disk for windows_vm platforms.
+inputs:
+  collection:
+    description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections.
+    required: true
+  requirements:
+    description: Collection requirement files to install, one per line (missing files are an error).
+    required: false
+    default: ''
+  pip:
+    description: Extra pip packages, space-separated (e.g. "molecule-plugins[docker] docker").
+    required: false
+    default: ''
+  ansible-core:
+    description: The ansible-core pip spec.
+    required: false
+    default: ansible-core
+  python-version:
+    description: Python for the controller.
+    required: false
+    default: '3.13'
+  kvm:
+    description: "'true' to enable /dev/kvm for the runner user and install QEMU and pypsrp (windows_vm platforms)."
+    required: false
+    default: 'false'
+  lab-dir:
+    description: >-
+      If set, create this directory (owned by the runner user) and export it as
+      TESTLAB_DIR. windows_vm needs ~20 GB, more than the root filesystem has; use /mnt/....
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Enable KVM and install QEMU
+      if: inputs.kvm == 'true'
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+          | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+        ls -l /dev/kvm
+
+    - name: Prepare the lab directory
+      if: inputs.lab-dir != ''
+      shell: bash
+      env:
+        LAB_DIR: ${{ inputs.lab-dir }}
+      run: |
+        sudo mkdir -p "$LAB_DIR"
+        sudo chown "$USER" "$LAB_DIR"
+        echo "TESTLAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
+        df -h "$LAB_DIR" /
+
+    - name: Install Ansible, Molecule and the test collections
+      shell: bash
+      env:
+        CORE: ${{ inputs.ansible-core }}
+        EXTRA: ${{ inputs.pip }}
+        KVM: ${{ inputs.kvm }}
+        REQUIREMENTS: ${{ inputs.requirements }}
+      run: |
+        pkgs=("$CORE" molecule)
+        [ "$KVM" = true ] && pkgs+=(pypsrp)
+        read -ra extra <<< "$EXTRA"
+        pip install "${pkgs[@]}" "${extra[@]}"
+        while IFS= read -r req; do
+          [ -n "$req" ] && ansible-galaxy collection install -r "$req"
+        done <<< "$REQUIREMENTS"
+
+    # Molecule runs the roles as <namespace>.<name>.<role>; ANSIBLE_COLLECTIONS_PATH
+    # in each scenario includes .molecule-collections.
+    - name: Expose the checkout as ${{ inputs.collection }}
+      shell: bash
+      env:
+        FQCN: ${{ inputs.collection }}
+      run: |
+        ns=${FQCN%%.*}; name=${FQCN#*.}
+        mkdir -p ".molecule-collections/ansible_collections/$ns"
+        ln -sfn ../../.. ".molecule-collections/ansible_collections/$ns/$name"

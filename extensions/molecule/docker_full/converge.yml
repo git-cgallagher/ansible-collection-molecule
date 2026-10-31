@@ -1,0 +1,7 @@
+---
+- name: Reach every platform
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:

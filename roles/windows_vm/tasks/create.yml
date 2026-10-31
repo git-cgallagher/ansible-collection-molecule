@@ -1,0 +1,226 @@
+---
+# Boots a Windows box under QEMU/KVM on the controller and appends its
+# Molecule instance-config entry to windows_vm_instances. Shared by
+# git_cgallagher.gpo's domain_lab and git_cgallagher.isc's
+# kea_dhcp_msdns_windows, which each carried a copy of these tasks.
+- name: Check the platform's keys
+  ansible.builtin.assert:
+    that:
+      - windows_vm_unsupported | length == 0
+      - windows_vm_missing | length == 0
+    fail_msg: >-
+      Platform {{ testlab_platform.name }} (kind windows_vm):
+      {{ ('unsupported key(s) ' ~ windows_vm_unsupported | join(', ') ~ '; supported: ' ~ windows_vm_platform_keys | join(', ') ~ '. ')
+         if windows_vm_unsupported else '' }}{{ ('missing ' ~ windows_vm_missing | join(', ') ~ '.') if windows_vm_missing else '' }}
+    quiet: true
+  vars:
+    windows_vm_unsupported: "{{ testlab_platform.keys() | difference(windows_vm_platform_keys) }}"
+    windows_vm_missing: "{{ ['box_url', 'box_sha256', 'box_user', 'box_password', 'winrm_port'] | difference(testlab_platform.keys()) }}"
+
+- name: Work out paths and port forwards
+  ansible.builtin.set_fact:
+    windows_vm_box_dir: "{{ windows_vm_dir }}/box-{{ testlab_platform.box_sha256[:12] }}"
+    windows_vm_box: "{{ windows_vm_dir }}/box-{{ testlab_platform.box_sha256[:12] }}/box.img"
+    windows_vm_overlay: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.qcow2"
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.pid"
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ testlab_platform.name }}-monitor.sock"
+    # WinRM for Ansible, on a 127.0.0.1 high port so nothing needs root.
+    windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ testlab_platform.winrm_port }}-:5985"]
+
+# Whatever else the scenario forwards (DNS, Kerberos, ...), per protocol:
+# forwards: [{port: 15353, guest_port: 53, protocols: [tcp, udp]}]
+- name: Add the platform's extra port forwards
+  ansible.builtin.set_fact:
+    windows_vm_hostfwds: "{{ windows_vm_hostfwds + ['hostfwd=' ~ item.1 ~ ':127.0.0.1:' ~ item.0.port ~ '-:' ~ item.0.guest_port] }}"
+  loop: "{{ testlab_platform.forwards | default([]) | subelements('protocols') }}"
+  loop_control:
+    label: "{{ item.1 }} {{ item.0.port }} -> {{ item.0.guest_port }}"
+
+# --- fail fast, with messages that say what to fix ----------------------------
+- name: Check for /dev/kvm
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: windows_vm_kvm
+
+- name: Require a usable /dev/kvm
+  ansible.builtin.assert:
+    that:
+      - windows_vm_kvm.stat.exists
+      - windows_vm_kvm.stat.writeable
+    fail_msg: >-
+      /dev/kvm is missing or not writable by this user. A windows_vm platform
+      boots a Windows Server VM and needs hardware virtualization (a Linux host
+      or a GitHub ubuntu-latest runner, not macOS/Apple silicon).
+    quiet: true
+
+- name: Check that QEMU is installed
+  ansible.builtin.command:
+    argv: ["{{ item }}", --version]
+  loop: [qemu-system-x86_64, qemu-img]
+  changed_when: false
+
+- name: Ensure the lab directory exists
+  ansible.builtin.file:
+    path: "{{ windows_vm_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Look for a cached box image
+  ansible.builtin.stat:
+    path: "{{ windows_vm_box }}"
+  register: windows_vm_box_stat
+
+- name: Measure free space in the lab directory
+  ansible.builtin.command:
+    argv: [df, -Pk, "{{ windows_vm_dir }}"]
+  register: windows_vm_df
+  changed_when: false
+
+# ~6 GB download + ~6 GB extracted image while the box isn't cached, plus
+# headroom for the VM's copy-on-write disk.
+- name: Require enough free space
+  ansible.builtin.assert:
+    that: (windows_vm_df.stdout_lines[1].split()[3] | int) >= windows_vm_need_kb | int
+    fail_msg: >-
+      {{ windows_vm_dir }} has {{ ((windows_vm_df.stdout_lines[1].split()[3] | int) / 1048576) | round(1) }} GB free;
+      this run needs {{ (windows_vm_need_kb | int / 1048576) | round(0) }} GB. Point the lab directory at a bigger disk.
+    quiet: true
+  vars:
+    windows_vm_need_kb: "{{ (8 if windows_vm_box_stat.stat.exists else 20) * 1048576 }}"
+
+- name: Require the WinRM forward port to be free
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ testlab_platform.winrm_port }}"
+    state: stopped
+    timeout: 5
+    msg: >-
+      127.0.0.1:{{ testlab_platform.winrm_port }} is already in use (a VM
+      from a previous run?). Run `molecule destroy` for that scenario first.
+
+# --- box image (cached across runs, keyed by checksum) -------------------------
+- name: Fetch and unpack the box
+  when: not windows_vm_box_stat.stat.exists
+  block:
+    - name: Create the box cache directory
+      ansible.builtin.file:
+        path: "{{ windows_vm_box_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Download the box (checksum-pinned)
+      ansible.builtin.get_url:
+        url: "{{ testlab_platform.box_url }}"
+        dest: "{{ windows_vm_box_dir }}/box.download"
+        checksum: "sha256:{{ testlab_platform.box_sha256 }}"
+        tmp_dest: "{{ windows_vm_box_dir }}"
+        timeout: 600
+        mode: "0600"
+
+    # tar rather than unarchive: unarchive decompresses the archive twice
+    # (list, then extract), which costs minutes on a 6 GB box.
+    - name: Extract the disk image from the box  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        argv: [tar, -xzf, "{{ windows_vm_box_dir }}/box.download", -C, "{{ windows_vm_box_dir }}", ./box.img]
+        creates: "{{ windows_vm_box }}"
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "{{ windows_vm_box_dir }}/box.download"
+        state: absent
+
+# --- VM ------------------------------------------------------------------------
+- name: Create a copy-on-write disk on top of the box image
+  ansible.builtin.command:
+    argv: [qemu-img, create, -f, qcow2, -F, qcow2, -b, "{{ windows_vm_box }}", "{{ windows_vm_overlay }}"]
+    creates: "{{ windows_vm_overlay }}"
+
+# Machine type, BIOS boot, virtio disk/NIC and Hyper-V enlightenments match
+# how jborean93's packer-windoze boxes are built (roles/setup/tasks/qemu.yml).
+- name: Start the VM
+  ansible.builtin.command:
+    argv:
+      - qemu-system-x86_64
+      - -name
+      - "{{ windows_vm_name_prefix }}-{{ testlab_platform.name }}"
+      - -machine
+      - type=pc,accel=kvm
+      - -cpu
+      - host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
+      - -smp
+      - "{{ testlab_platform.cpus | default(2) }}"
+      - -m
+      - "{{ testlab_platform.memory_mb | default(4096) }}M"
+      - -rtc
+      - base=localtime
+      - -drive
+      - "file={{ windows_vm_overlay }},if=virtio,format=qcow2,cache=unsafe,discard=unmap"
+      - -netdev
+      - "user,id=net0,{{ windows_vm_hostfwds | join(',') }}"
+      - -device
+      - virtio-net-pci,netdev=net0
+      - -display
+      - none
+      - -monitor
+      - "unix:{{ windows_vm_monitor }},server,nowait"
+      - -pidfile
+      - "{{ windows_vm_pidfile }}"
+      - -daemonize
+  changed_when: true
+
+# The box's first boot runs OOBE, rearms the evaluation licence, reboots,
+# then recreates the WinRM listeners and finally deletes C:\temp\setup.ps1.
+# WinRM answers *during* that sequence, so "port open" isn't "ready": poll
+# the marker from a fresh process each time, which a mid-poll reboot can't
+# break the way it would break an Ansible connection. The per-attempt
+# timeout matters: a call caught by that reboot can hang forever on a
+# half-open slirp connection (it hung one CI run for 40 minutes).
+- name: Wait for the box's first boot to finish (OOBE, rearm reboot, WinRM reset)
+  ansible.builtin.command:
+    argv:
+      # coreutils timeout, not the task keyword: a timed-out task fails
+      # outright instead of being retried by `until`.
+      - timeout
+      - '40'
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import sys
+        from pypsrp.client import Client
+        client = Client(sys.argv[1], port=int(sys.argv[2]), username=sys.argv[3], password=sys.argv[4],
+                        ssl=False, auth="negotiate", connection_timeout=10)
+        out, _, _ = client.execute_ps("if (Test-Path -LiteralPath 'C:\\temp\\setup.ps1') { 'busy' } else { 'ready' }")
+        sys.exit(0 if out.strip() == "ready" else 3)
+      - 127.0.0.1
+      - "{{ testlab_platform.winrm_port }}"
+      - "{{ testlab_platform.box_user }}"
+      - "{{ testlab_platform.box_password }}"
+  register: windows_vm_first_boot
+  until: windows_vm_first_boot.rc == 0
+  retries: "{{ windows_vm_first_boot_retries }}"
+  delay: 10
+  failed_when: false
+  changed_when: false
+
+- name: Require the first boot to have finished
+  ansible.builtin.assert:
+    that: windows_vm_first_boot.rc == 0
+    fail_msg: >-
+      The box didn't finish its first boot after {{ windows_vm_first_boot_retries }} polls (last attempt rc
+      {{ windows_vm_first_boot.rc }}{{ ' = timed out' if windows_vm_first_boot.rc == 124 else '' }}:
+      {{ windows_vm_first_boot.stderr | default('') | truncate(300) }}).
+      The monitor socket {{ windows_vm_monitor }} can take a screendump of where it stopped.
+    quiet: true
+
+# Appended, so a looped include_role collects one entry per VM.
+- name: Add the VM to the Molecule instance-config entries
+  ansible.builtin.set_fact:
+    windows_vm_instances: "{{ windows_vm_instances | default([]) + [windows_vm_instance] }}"
+  vars:
+    windows_vm_instance:
+      instance: "{{ testlab_platform.name }}"
+      address: 127.0.0.1
+      port: "{{ testlab_platform.winrm_port }}"
+      user: "{{ testlab_platform.box_user }}"
+      password: "{{ testlab_platform.box_password }}"
+      connection: psrp

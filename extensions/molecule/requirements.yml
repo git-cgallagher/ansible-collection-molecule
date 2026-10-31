@@ -1,0 +1,6 @@
+---
+# Test-only collections for the self-test scenarios (the collection's own
+# dependencies are in galaxy.yml).
+collections:
+  - name: community.docker   # the docker connection
+    version: '>=3.0.0'

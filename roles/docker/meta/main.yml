@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Chris Gallagher
+  description: The docker platform kind for Molecule (containers, networks and image builds via the docker CLI)
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble]
+  galaxy_tags: [molecule, testing, docker]
+dependencies: []

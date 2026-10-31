@@ -1,0 +1,12 @@
+---
+# The create/destroy playbooks against two docker platforms: no KVM needed,
+# so it runs on any Docker host (including a Mac) and on every PR.
+platforms:
+  - name: testlab-smoke1
+    kind: docker
+    image: python:3.13-slim
+  - name: testlab-smoke2
+    kind: docker
+    image: python:3.13-slim
+    hostname: smoke2.example.test
+    command: [sleep, '3600']

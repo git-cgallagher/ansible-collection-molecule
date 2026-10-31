@@ -1,0 +1,45 @@
+---
+# Create for the molecule-testlab driver (and for `driver: default` scenarios
+# that import it from a create.yml). Each platform is created by the role
+# named after its kind, in the order molecule.yml lists them; then the
+# instance config Molecule builds its inventory from is written.
+#
+# A kind is a role in this collection with `create` and `destroy` entry
+# points. It reads testlab_platform (and testlab_lab_dir if it needs disk)
+# and appends its instance-config entries to <kind>_instances.
+- name: Create the Molecule platforms
+  hosts: localhost
+  gather_facts: false
+  vars:
+    testlab_kinds: [docker, windows_vm]
+    # Box cache and VM disks: the testlab_dir inventory var, else $TESTLAB_DIR,
+    # else ~/.cache/testlab (CI points it at the runner's /mnt disk).
+    testlab_lab_dir: >-
+      {{ testlab_dir | default(lookup('ansible.builtin.env', 'TESTLAB_DIR'), true)
+         | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/testlab', true) }}
+  tasks:
+    - name: Require a known kind on every platform
+      ansible.builtin.assert:
+        that: item.kind | default('docker') in testlab_kinds
+        fail_msg: "Platform {{ item.name }}: unknown kind {{ item.kind | default('docker') }} (known: {{ testlab_kinds | join(', ') }})."
+        quiet: true
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create the platforms
+      ansible.builtin.include_role:
+        name: "git_cgallagher.testlab.{{ testlab_platform.kind | default('docker') }}"
+        tasks_from: create
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        loop_var: testlab_platform
+        label: "{{ testlab_platform.name }} ({{ testlab_platform.kind | default('docker') }})"
+
+    - name: Write the Molecule instance config
+      ansible.builtin.copy:
+        dest: "{{ molecule_instance_config }}"
+        content: "{{ query('ansible.builtin.vars', *testlab_instance_vars, default=[]) | flatten(levels=1) | to_nice_yaml }}"
+        mode: "0600"
+      vars:
+        testlab_instance_vars: "{{ testlab_kinds | map('regex_replace', '$', '_instances') | list }}"

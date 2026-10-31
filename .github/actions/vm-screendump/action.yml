@@ -1,0 +1,27 @@
+name: Capture a windows_vm screen
+description: >-
+  Ask a windows_vm platform's QEMU monitor for a screendump (PPM) into the lab
+  directory, for a failed run's diagnostics. Never fails the job.
+inputs:
+  lab-dir:
+    description: The lab directory (TESTLAB_DIR).
+    required: true
+  platform:
+    description: The windows_vm platform's name (the monitor socket is <lab-dir>/<platform>-monitor.sock).
+    required: true
+runs:
+  using: composite
+  steps:
+    # nc needs -N (close on stdin EOF) and a timeout: the QEMU monitor keeps
+    # the socket open, so plain `nc -U` never exits (hung a run for 30 min).
+    - name: Capture the VM screen
+      shell: bash
+      env:
+        LAB_DIR: ${{ inputs.lab-dir }}
+        PLATFORM: ${{ inputs.platform }}
+      run: |
+        sock="$LAB_DIR/$PLATFORM-monitor.sock"
+        if [ -S "$sock" ]; then
+          { printf 'screendump %s/%s-screen.ppm\n' "$LAB_DIR" "$PLATFORM"; sleep 3; } | timeout 20 nc -N -U "$sock" || true
+        fi
+        ls -la "$LAB_DIR" || true

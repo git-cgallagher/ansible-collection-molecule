@@ -1,0 +1,41 @@
+---
+# Safe to run when nothing exists (Molecule destroys before create, too). The
+# box image stays cached in windows_vm_dir; only this run's disk goes.
+- name: Work out paths
+  ansible.builtin.set_fact:
+    windows_vm_overlay: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.qcow2"
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.pid"
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ testlab_platform.name }}-monitor.sock"
+
+- name: Read the QEMU pidfile
+  ansible.builtin.slurp:
+    src: "{{ windows_vm_pidfile }}"
+  register: windows_vm_pid_file
+  failed_when: false
+
+- name: Stop QEMU
+  when: windows_vm_pid_file.content is defined
+  vars:
+    windows_vm_pid: "{{ windows_vm_pid_file.content | b64decode | trim }}"
+  block:
+    - name: Kill the QEMU process
+      ansible.builtin.command:
+        argv: [kill, "{{ windows_vm_pid }}"]
+      register: windows_vm_kill
+      changed_when: windows_vm_kill.rc == 0
+      failed_when: false
+
+    - name: Wait for QEMU to exit
+      ansible.builtin.wait_for:
+        path: "/proc/{{ windows_vm_pid }}/status"
+        state: absent
+        timeout: 60
+
+- name: Remove the VM disk, pidfile and monitor socket
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ windows_vm_overlay }}"
+    - "{{ windows_vm_pidfile }}"
+    - "{{ windows_vm_monitor }}"

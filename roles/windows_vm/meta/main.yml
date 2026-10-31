@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Chris Gallagher
+  description: Boot and tear down a Windows Server Vagrant box under QEMU/KVM for Molecule
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [noble]
+  galaxy_tags: [molecule, testing, qemu, windows]
+dependencies: []

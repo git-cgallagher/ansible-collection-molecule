@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molecule-testlab"
+version = "0.1.0"
+description = "Molecule driver for git_cgallagher.testlab: Docker containers and QEMU/KVM Windows VMs from platform definitions"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Chris Gallagher" }]
+requires-python = ">=3.10"
+dependencies = ["molecule>=25.1"]
+
+[project.optional-dependencies]
+# The windows_vm kind's first-boot poll and Ansible's psrp connection.
+windows = ["pypsrp>=0.8"]
+
+[project.entry-points."molecule.driver"]
+molecule-testlab = "molecule_testlab.driver:Testlab"
+
+[project.urls]
+Repository = "https://github.com/git-cgallagher/ansible-collection-testlab"
+
+[tool.setuptools]
+packages = ["molecule_testlab"]
+
+[tool.setuptools.package-data]
+molecule_testlab = ["playbooks/*.yml", "schema/*.json"]

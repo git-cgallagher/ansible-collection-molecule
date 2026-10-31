@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Chris Gallagher
+  description: Promote a throwaway Windows Server test VM to the first DC of a new forest
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Windows
+      versions: ["2022"]
+  galaxy_tags: [molecule, testing, windows, activedirectory]
+dependencies: []

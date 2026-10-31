@@ -1,0 +1,59 @@
+---
+argument_specs:
+  main:
+    short_description: Promote a test VM to the first DC of a new forest
+    description:
+      - For throwaway lab VMs only. It turns off Windows Update and Defender real-time scanning
+        and puts the connection account in Domain Admins.
+    options:
+      ad_forest_domain:
+        type: str
+        required: true
+        description: DNS name of the new domain.
+      ad_forest_netbios:
+        type: str
+        required: true
+        description: NetBIOS name of the new domain.
+      ad_forest_dsrm_password:
+        type: str
+        required: true
+        no_log: true
+        description: Directory Services Restore Mode password.
+      ad_forest_hostname:
+        type: str
+        default: ""
+        description: Rename the host (and reboot) before promotion. Empty keeps the current name.
+      ad_forest_features:
+        type: list
+        elements: str
+        default: [AD-Domain-Services, RSAT-AD-PowerShell]
+        description: Windows features installed before promotion.
+      ad_forest_install_dns:
+        type: bool
+        description: Passed to C(microsoft.ad.domain); unset leaves the Install-ADDSForest default.
+      ad_forest_ready_modules:
+        type: list
+        elements: str
+        default: [ActiveDirectory]
+        description: PowerShell modules the post-promotion readiness check imports.
+      ad_forest_ready_test:
+        type: str
+        default: ""
+        description: Extra PowerShell the readiness check runs after C(Get-ADDomain); throw or exit non-zero while not ready.
+      ad_forest_wait_sysvol_path:
+        type: bool
+        default: false
+        description: Wait until C(\\domain\SYSVOL\domain\Policies) resolves (needed before GPMC writes).
+      ad_forest_admin_groups:
+        type: list
+        elements: str
+        default: [Domain Admins]
+        description: Groups the connection account joins.
+      ad_forest_sync_clock:
+        type: bool
+        default: false
+        description: Set the DC's clock from the controller (for Kerberos clients outside the VM).
+      ad_forest_quiet:
+        type: bool
+        default: true
+        description: Stop Windows Update and Defender real-time scanning.

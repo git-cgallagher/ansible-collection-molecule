@@ -1,0 +1,16 @@
+---
+# Platform keys the windows_vm kind understands; any other key fails the run
+# rather than being silently ignored.
+windows_vm_platform_keys:
+  - name
+  - kind
+  - groups        # Molecule's inventory groups (handled by Molecule)
+  - children
+  - box_url       # a libvirt Vagrant box (jborean93's packer-windoze builds)
+  - box_sha256    # required: the box is cached by checksum
+  - box_user
+  - box_password
+  - winrm_port    # host port on 127.0.0.1 forwarded to the guest's 5985
+  - memory_mb     # default 4096
+  - cpus          # default 2
+  - forwards      # [{port, guest_port, protocols: [tcp, udp]}], on 127.0.0.1

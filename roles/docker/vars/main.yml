@@ -1,0 +1,25 @@
+---
+# Platform keys the docker kind understands. Names and meanings follow
+# molecule-plugins' docker driver, so its platform definitions carry over;
+# any other key fails the run rather than being silently ignored.
+docker_platform_keys:
+  - name
+  - kind
+  - groups            # Molecule's inventory groups (handled by Molecule)
+  - children
+  - image
+  - platform          # e.g. linux/amd64: pulled for that architecture first
+  - dockerfile        # build `image` from this file (relative to the scenario)
+  - pre_build_image   # docker-driver compatibility: false iff dockerfile is set
+  - hostname
+  - command           # string (split on whitespace) or list; "" = the image's CMD
+  - override_command  # false = the image's CMD
+  - env
+  - privileged
+  - cgroupns_mode
+  - volumes
+  - tmpfs
+  - network_mode      # e.g. host; excludes networks
+  - networks          # [{name, ipv4_address}]
+  - docker_networks   # [{name, ipam_config: [{subnet, gateway}]}], created if missing
+  - published_ports
