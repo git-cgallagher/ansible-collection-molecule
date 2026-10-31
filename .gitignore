@@ -1,0 +1,8 @@
+collections/
+.ansible/
+.cache/
+.molecule-collections/
+tests/output/
+*.tar.gz
+*.retry
+__pycache__/
