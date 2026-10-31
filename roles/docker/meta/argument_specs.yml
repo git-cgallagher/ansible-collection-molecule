@@ -3,7 +3,7 @@ argument_specs:
   main:
     short_description: Create a docker-kind platform (alias of the create entry point)
     options: &docker_options
-      testlab_platform:
+      molecule_platform:
         type: dict
         required: true
         description:

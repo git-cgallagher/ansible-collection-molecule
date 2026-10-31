@@ -1,7 +1,7 @@
-"""The testlab Molecule driver.
+"""The molecule-git-cgallagher Molecule driver.
 
-Create and destroy come from the git_cgallagher.testlab collection: the
-playbooks bundled here only import git_cgallagher.testlab.create and
+Create and destroy come from the git_cgallagher.molecule collection: the
+playbooks bundled here only import git_cgallagher.molecule.create and
 .destroy, which start each platform by its ``kind`` (docker or windows_vm)
 and write the instance config. Connection details are read back from that
 instance config, as with the delegated driver this subclasses.
@@ -14,14 +14,14 @@ from pathlib import Path
 from molecule.driver.delegated import Delegated
 
 
-class Testlab(Delegated):
+class GitCgallagherDriver(Delegated):
     """Docker containers and QEMU/KVM Windows VMs from molecule.yml platforms."""
 
-    title = "Docker containers and QEMU/KVM Windows VMs (git_cgallagher.testlab)"
+    title = "Docker containers and QEMU/KVM Windows VMs (git_cgallagher.molecule)"
 
     def __init__(self, config=None) -> None:  # noqa: ANN001
         super().__init__(config)
-        self._name = "molecule-testlab"
+        self._name = "molecule-git-cgallagher"
 
     @property
     def managed(self) -> bool:

@@ -5,16 +5,16 @@
   tasks:
     - name: Inspect the containers
       ansible.builtin.command:
-        argv: [docker, inspect, testlab-built, testlab-systemd, testlab-amd64]
+        argv: [docker, inspect, molecule-built, molecule-systemd, molecule-amd64]
       register: full_inspect
       changed_when: false
 
     - name: Require the static IPs, env, tmpfs, volume, cgroupns and privileges
       ansible.builtin.assert:
         that:
-          - full_built.NetworkSettings.Networks['testlab-full'].IPAMConfig.IPv4Address == '172.31.99.11'
-          - full_systemd.NetworkSettings.Networks['testlab-full'].IPAMConfig.IPv4Address == '172.31.99.12'
-          - "'TESTLAB_FOO=bar' in full_built.Config.Env"
+          - full_built.NetworkSettings.Networks['molecule-full'].IPAMConfig.IPv4Address == '172.31.99.11'
+          - full_systemd.NetworkSettings.Networks['molecule-full'].IPAMConfig.IPv4Address == '172.31.99.12'
+          - "'LAB_FOO=bar' in full_built.Config.Env"
           - "'/scratch' in full_built.HostConfig.Tmpfs"
           - full_built.Mounts | selectattr('Destination', 'equalto', '/data') | list | length == 1
           - full_built.Config.Labels.owner == 'molecule'
@@ -36,11 +36,11 @@
       delay: 2
 
 - name: Check the built image and the platform options inside it
-  hosts: testlab-built
+  hosts: molecule-built
   gather_facts: false
   tasks:
     - name: Read the build marker, hostname and env
-      ansible.builtin.command: sh -c 'test -e /built-by-testlab && hostname && echo "$TESTLAB_FOO"'
+      ansible.builtin.command: sh -c 'test -e /built-by-dockerfile && hostname && echo "$LAB_FOO"'
       register: full_built_out
       changed_when: false
 
@@ -62,7 +62,7 @@
         that: full_pid1.stdout == 'systemd'
 
 - name: Check the platform key picked the architecture
-  hosts: testlab-amd64
+  hosts: molecule-amd64
   gather_facts: false
   tasks:
     - name: Read the machine type

@@ -62,6 +62,6 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-molecule
         with:
-          collection: git_cgallagher.testlab
+          collection: git_cgallagher.molecule
           requirements: extensions/molecule/requirements.yml
       - run: molecule test -s ${{ matrix.scenario }}

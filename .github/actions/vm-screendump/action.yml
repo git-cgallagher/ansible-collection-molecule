@@ -4,7 +4,7 @@ description: >-
   directory, for a failed run's diagnostics. Never fails the job.
 inputs:
   lab-dir:
-    description: The lab directory (TESTLAB_DIR).
+    description: The lab directory (MOLECULE_LAB_DIR).
     required: true
   platform:
     description: The windows_vm platform's name (the monitor socket is <lab-dir>/<platform>-monitor.sock).

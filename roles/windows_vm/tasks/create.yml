@@ -9,30 +9,30 @@
       - windows_vm_unsupported | length == 0
       - windows_vm_missing | length == 0
     fail_msg: >-
-      Platform {{ testlab_platform.name }} (kind windows_vm):
+      Platform {{ molecule_platform.name }} (kind windows_vm):
       {{ ('unsupported key(s) ' ~ windows_vm_unsupported | join(', ') ~ '; supported: ' ~ windows_vm_platform_keys | join(', ') ~ '. ')
          if windows_vm_unsupported else '' }}{{ ('missing ' ~ windows_vm_missing | join(', ') ~ '.') if windows_vm_missing else '' }}
     quiet: true
   vars:
-    windows_vm_unsupported: "{{ testlab_platform.keys() | difference(windows_vm_platform_keys) }}"
-    windows_vm_missing: "{{ ['box_url', 'box_sha256', 'box_user', 'box_password', 'winrm_port'] | difference(testlab_platform.keys()) }}"
+    windows_vm_unsupported: "{{ molecule_platform.keys() | difference(windows_vm_platform_keys) }}"
+    windows_vm_missing: "{{ ['box_url', 'box_sha256', 'box_user', 'box_password', 'winrm_port'] | difference(molecule_platform.keys()) }}"
 
 - name: Work out paths and port forwards
   ansible.builtin.set_fact:
-    windows_vm_box_dir: "{{ windows_vm_dir }}/box-{{ testlab_platform.box_sha256[:12] }}"
-    windows_vm_box: "{{ windows_vm_dir }}/box-{{ testlab_platform.box_sha256[:12] }}/box.img"
-    windows_vm_overlay: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.qcow2"
-    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.pid"
-    windows_vm_monitor: "{{ windows_vm_dir }}/{{ testlab_platform.name }}-monitor.sock"
+    windows_vm_box_dir: "{{ windows_vm_dir }}/box-{{ molecule_platform.box_sha256[:12] }}"
+    windows_vm_box: "{{ windows_vm_dir }}/box-{{ molecule_platform.box_sha256[:12] }}/box.img"
+    windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
     # WinRM for Ansible, on a 127.0.0.1 high port so nothing needs root.
-    windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ testlab_platform.winrm_port }}-:5985"]
+    windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ molecule_platform.winrm_port }}-:5985"]
 
 # Whatever else the scenario forwards (DNS, Kerberos, ...), per protocol:
 # forwards: [{port: 15353, guest_port: 53, protocols: [tcp, udp]}]
 - name: Add the platform's extra port forwards
   ansible.builtin.set_fact:
     windows_vm_hostfwds: "{{ windows_vm_hostfwds + ['hostfwd=' ~ item.1 ~ ':127.0.0.1:' ~ item.0.port ~ '-:' ~ item.0.guest_port] }}"
-  loop: "{{ testlab_platform.forwards | default([]) | subelements('protocols') }}"
+  loop: "{{ molecule_platform.forwards | default([]) | subelements('protocols') }}"
   loop_control:
     label: "{{ item.1 }} {{ item.0.port }} -> {{ item.0.guest_port }}"
 
@@ -91,11 +91,11 @@
 - name: Require the WinRM forward port to be free
   ansible.builtin.wait_for:
     host: 127.0.0.1
-    port: "{{ testlab_platform.winrm_port }}"
+    port: "{{ molecule_platform.winrm_port }}"
     state: stopped
     timeout: 5
     msg: >-
-      127.0.0.1:{{ testlab_platform.winrm_port }} is already in use (a VM
+      127.0.0.1:{{ molecule_platform.winrm_port }} is already in use (a VM
       from a previous run?). Run `molecule destroy` for that scenario first.
 
 # --- box image (cached across runs, keyed by checksum) -------------------------
@@ -110,9 +110,9 @@
 
     - name: Download the box (checksum-pinned)
       ansible.builtin.get_url:
-        url: "{{ testlab_platform.box_url }}"
+        url: "{{ molecule_platform.box_url }}"
         dest: "{{ windows_vm_box_dir }}/box.download"
-        checksum: "sha256:{{ testlab_platform.box_sha256 }}"
+        checksum: "sha256:{{ molecule_platform.box_sha256 }}"
         tmp_dest: "{{ windows_vm_box_dir }}"
         timeout: 600
         mode: "0600"
@@ -142,15 +142,15 @@
     argv:
       - qemu-system-x86_64
       - -name
-      - "{{ windows_vm_name_prefix }}-{{ testlab_platform.name }}"
+      - "{{ windows_vm_name_prefix }}-{{ molecule_platform.name }}"
       - -machine
       - type=pc,accel=kvm
       - -cpu
       - host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
       - -smp
-      - "{{ testlab_platform.cpus | default(2) }}"
+      - "{{ molecule_platform.cpus | default(2) }}"
       - -m
-      - "{{ testlab_platform.memory_mb | default(4096) }}M"
+      - "{{ molecule_platform.memory_mb | default(4096) }}M"
       - -rtc
       - base=localtime
       - -drive
@@ -192,9 +192,9 @@
         out, _, _ = client.execute_ps("if (Test-Path -LiteralPath 'C:\\temp\\setup.ps1') { 'busy' } else { 'ready' }")
         sys.exit(0 if out.strip() == "ready" else 3)
       - 127.0.0.1
-      - "{{ testlab_platform.winrm_port }}"
-      - "{{ testlab_platform.box_user }}"
-      - "{{ testlab_platform.box_password }}"
+      - "{{ molecule_platform.winrm_port }}"
+      - "{{ molecule_platform.box_user }}"
+      - "{{ molecule_platform.box_password }}"
   register: windows_vm_first_boot
   until: windows_vm_first_boot.rc == 0
   retries: "{{ windows_vm_first_boot_retries }}"
@@ -218,9 +218,9 @@
     windows_vm_instances: "{{ windows_vm_instances | default([]) + [windows_vm_instance] }}"
   vars:
     windows_vm_instance:
-      instance: "{{ testlab_platform.name }}"
+      instance: "{{ molecule_platform.name }}"
       address: 127.0.0.1
-      port: "{{ testlab_platform.winrm_port }}"
-      user: "{{ testlab_platform.box_user }}"
-      password: "{{ testlab_platform.box_password }}"
+      port: "{{ molecule_platform.winrm_port }}"
+      user: "{{ molecule_platform.box_user }}"
+      password: "{{ molecule_platform.box_password }}"
       connection: psrp

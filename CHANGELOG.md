@@ -2,10 +2,10 @@
 
 ## 0.1.0
 
-First release: the molecule-testlab driver (pip), the git_cgallagher.testlab collection and the
+First release: the molecule-git-cgallagher driver (pip), the git_cgallagher.molecule collection and the
 setup-molecule action, from one repo and one tag.
 
-- `molecule-testlab` driver: bundled create/destroy import the collection's playbooks, so a
+- `molecule-git-cgallagher` driver: bundled create/destroy import the collection's playbooks, so a
   scenario is its platforms plus converge/verify.
 - Kind `docker`: containers through the docker CLI, with networks (static IPs), Dockerfile builds,
   published ports, systemd containers and `platform` pulls; molecule-plugins' docker-driver key

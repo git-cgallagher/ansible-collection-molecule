@@ -1,10 +1,10 @@
-# Scenario-side migration of git-cgallagher/ansible-collection-isc to molecule-testlab.
+# Scenario-side migration of git-cgallagher/ansible-collection-isc to the molecule-git-cgallagher driver.
 # Base: isc main 9d20478 (2026-10-31). Apply with: git apply docs/isc-scenarios.patch
 # Workflows, galaxy.yml build_ignore, the version-bump regex and docs are not included:
 # see docs/MIGRATION.md.
 diff --git a/.config/molecule/config.yml b/.config/molecule/config.yml
 new file mode 100644
-index 0000000..8fde73b
+index 0000000..0cac0c1
 --- /dev/null
 +++ b/.config/molecule/config.yml
 @@ -0,0 +1,19 @@
@@ -17,7 +17,7 @@ index 0000000..8fde73b
 +  options:
 +    requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/../../requirements.yml
 +driver:
-+  name: molecule-testlab
++  name: molecule-git-cgallagher
 +provisioner:
 +  name: ansible
 +  env:
@@ -710,7 +710,7 @@ index 3a53076..fdcfc29 100644
  scenario:
    test_sequence: [dependency, destroy, syntax, create, prepare, converge, idempotence, verify, destroy]
 diff --git a/roles/kea_dhcp_msdns/molecule/windows/prepare.yml b/roles/kea_dhcp_msdns/molecule/windows/prepare.yml
-index 4949c0a..289c665 100644
+index 4949c0a..d329f44 100644
 --- a/roles/kea_dhcp_msdns/molecule/windows/prepare.yml
 +++ b/roles/kea_dhcp_msdns/molecule/windows/prepare.yml
 @@ -6,99 +6,22 @@
@@ -812,7 +812,7 @@ index 4949c0a..289c665 100644
 -      register: lab_clock
 +    - name: Promote
 +      ansible.builtin.include_role:
-+        name: git_cgallagher.testlab.ad_forest
++        name: git_cgallagher.molecule.ad_forest
 +      vars:
 +        ad_forest_domain: "{{ lab_domain }}"
 +        ad_forest_netbios: "{{ lab_netbios }}"

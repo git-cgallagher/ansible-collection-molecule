@@ -1,4 +1,4 @@
-# Moving the git_cgallagher repos onto molecule-testlab
+# Moving the git_cgallagher repos onto molecule-git-cgallagher
 
 Status 2026-10-31: proposal. Nothing in the consumer repos has changed yet.
 
@@ -15,8 +15,8 @@ Status 2026-10-31: proposal. Nothing in the consumer repos has changed yet.
 
 | | Before | After |
 |---|---|---|
-| pip, per Molecule job | `ansible-core molecule 'molecule-plugins[docker]' docker` (+ `pypsrp` for Windows) | `ansible-core molecule molecule-testlab` (from the action) |
-| collections, per job | repo `requirements.yml` + `community.docker` (+ `ansible.windows`, `microsoft.ad` from a scenario `requirements.yml`) | repo `requirements.yml` + `git_cgallagher.testlab` (brings `community.docker`, `ansible.windows`, `microsoft.ad`) |
+| pip, per Molecule job | `ansible-core molecule 'molecule-plugins[docker]' docker` (+ `pypsrp` for Windows) | `ansible-core molecule molecule-git-cgallagher` (from the action) |
+| collections, per job | repo `requirements.yml` + `community.docker` (+ `ansible.windows`, `microsoft.ad` from a scenario `requirements.yml`) | repo `requirements.yml` + `git_cgallagher.molecule` (brings `community.docker`, `ansible.windows`, `microsoft.ad`) |
 | per-scenario files | `molecule.yml` with dependency/driver/provisioner env/verifier/test_sequence; the Windows scenarios add `create.yml` + `destroy.yml` (~290 lines, copied between the windows and isc repos) and a `requirements.yml` | `molecule.yml` = platforms + inventory; no create/destroy anywhere |
 | CI setup, per job | 4-15 lines (pip, galaxy, symlink; KVM, QEMU and lab dir for Windows) | one `uses:` step |
 | mixed drivers | a job needs every driver its sibling scenarios use (isc 8d63b31: `windows-dc` installs the docker driver for a scenario it never runs) | one driver for all scenarios |
@@ -37,7 +37,7 @@ One PR. Scenario files are build-ignored, so no Galaxy release is needed, but se
      options:
        requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/../../requirements.yml
    driver:
-     name: molecule-testlab
+     name: molecule-git-cgallagher
    provisioner:
      name: ansible
      env:
@@ -111,7 +111,7 @@ One PR. Scenario files are build-ignored, so no Galaxy release is needed, but se
        tasks:
          - name: Promote
            ansible.builtin.include_role:
-             name: git_cgallagher.testlab.ad_forest
+             name: git_cgallagher.molecule.ad_forest
            vars:
              ad_forest_domain: "{{ lab_domain }}"
              ad_forest_netbios: "{{ lab_netbios }}"
@@ -129,7 +129,7 @@ One PR. Scenario files are build-ignored, so no Galaxy release is needed, but se
    become:
 
    ```yaml
-   - uses: git-cgallagher/ansible-collection-testlab/.github/actions/setup-molecule@<sha>  # v0.1.0
+   - uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.1.0
      with:
        collection: git_cgallagher.isc
        requirements: requirements.yml
@@ -138,13 +138,13 @@ One PR. Scenario files are build-ignored, so no Galaxy release is needed, but se
 
    `windows-dc.yml`: the KVM/QEMU, lab-dir, install and symlink steps become the same action with
    `kvm: 'true'` and `lab-dir: /mnt/kea-lab`; the screen capture becomes
-   `git-cgallagher/ansible-collection-testlab/.github/actions/vm-screendump@<sha>` (the file is now
+   `git-cgallagher/ansible-collection-molecule/.github/actions/vm-screendump@<sha>` (the file is now
    `dc01-screen.ppm`); drop `molecule-plugins[docker]`, and replace `KEA_LAB_DIR` with the
-   `TESTLAB_DIR` the action exports (the diagnostics `docker cp` and the artifact paths). Job names don't change, so the ruleset's required checks don't either.
+   `MOLECULE_LAB_DIR` the action exports (the diagnostics `docker cp` and the artifact paths). Job names don't change, so the ruleset's required checks don't either.
 6. **Docs.** AGENTS.md: the Checks block (install = the two commands in this repo's README), drop
    the "every driver its siblings use" gotcha, note that platforms are validated against the kind's
    key list. CHANGELOG entry (no version bump). `roles/kea_dhcp_msdns/molecule/windows/README.md`:
-   `KEA_LAB_DIR` → `TESTLAB_DIR`.
+   `KEA_LAB_DIR` → `MOLECULE_LAB_DIR`.
 
 Steps 2–4 as a patch against isc `main` 9d20478: [`isc-scenarios.patch`](isc-scenarios.patch)
 (14 files, +49 / −585 lines; `git apply --check` passes on that commit).
@@ -179,15 +179,15 @@ session.
 One PR:
 
 1. `.config/molecule/config.yml`:
-   - `driver: {name: molecule-testlab}`, replacing `name: default` + `options.managed`;
+   - `driver: {name: molecule-git-cgallagher}`, replacing `name: default` + `options.managed`;
    - delete `provisioner.playbooks` (the create/destroy paths);
    - `dc01` gets `kind: windows_vm`, and no `forwards` (WinRM only);
-   - in `group_vars.all`, read `lab_dir` from `TESTLAB_DIR` (what setup-molecule exports) instead of
-     `GPO_LAB_DIR`, and add `testlab_dir: "{{ lab_dir }}"`, so the box cache and VM disk stay next to
-     the GPO export repos.
+   - in `group_vars.all`, read `lab_dir` from `MOLECULE_LAB_DIR` (what setup-molecule exports) instead of
+     `GPO_LAB_DIR`, so the box cache and VM disk (which the driver keeps in `$MOLECULE_LAB_DIR`)
+     stay next to the GPO export repos.
 2. Delete `tests/domain_lab/create.yml` and `destroy.yml`.
 3. `tests/domain_lab/promote.yml`: the promotion tasks (connection wait through the reconnect)
-   become `git_cgallagher.testlab.ad_forest` with
+   become `git_cgallagher.molecule.ad_forest` with
 
    ```yaml
    ad_forest_domain: "{{ lab_domain }}"
@@ -206,11 +206,11 @@ One PR:
 
    `seed.yml`, the fixture and the scenarios' own prepare/converge/verify stay as they are.
 4. `tests/domain_lab/requirements.yml` can stay for local runs; in CI the action installs the
-   testlab collection, which brings `ansible.windows` and `microsoft.ad`.
+   `git_cgallagher.molecule` collection, which brings `ansible.windows` and `microsoft.ad`.
 5. The domain-lab workflow: the KVM/QEMU, lab-dir, install and symlink steps become `setup-molecule`
    with `collection: git_cgallagher.windows`, `kvm: 'true'` and `lab-dir: /mnt/gpo-lab`; the screen
    capture becomes `vm-screendump` (the file is now `dc01-screen.ppm`); the artifact upload keeps
-   `gpo-repo*/`; `GPO_LAB_DIR` becomes `TESTLAB_DIR`. Still not a required check.
+   `gpo-repo*/`; `GPO_LAB_DIR` becomes `MOLECULE_LAB_DIR`. Still not a required check.
 6. Docs: AGENTS.md, `tests/domain_lab/README.md`, CHANGELOG.
 
 ## Order

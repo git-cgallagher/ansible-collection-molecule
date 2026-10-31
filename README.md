@@ -1,20 +1,22 @@
-# git_cgallagher.testlab — a shared Molecule driver
+# git_cgallagher.molecule — a shared Molecule driver
 
 One Molecule driver for every `git_cgallagher` collection and role. A scenario
 only describes its platforms; the driver creates and destroys them.
 
-- **`molecule-testlab`**, a Molecule driver plugin (pip). Its bundled create and
+- **`molecule-git-cgallagher`**, a Molecule driver plugin (pip). Its bundled create and
   destroy import the collection's playbooks, so scenarios need no `create.yml`
-  or `destroy.yml`.
-- **`git_cgallagher.testlab`**, the collection that does the work (Galaxy/git).
+  or `destroy.yml`. (It can't be called plain `molecule`: Molecule only accepts
+  third-party driver names starting `molecule-` or `custom-`, and the pip package
+  `molecule` is Molecule itself.)
+- **`git_cgallagher.molecule`**, the collection that does the work (Galaxy/git).
   It dispatches each platform by `kind` to the role of that name:
 
   | kind | role | creates | needs |
   |---|---|---|---|
-  | `docker` (default) | `git_cgallagher.testlab.docker` | a container through the docker CLI, plus its networks and Dockerfile build | Docker |
-  | `windows_vm` | `git_cgallagher.testlab.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1 | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
+  | `docker` (default) | `git_cgallagher.molecule.docker` | a container through the docker CLI, plus its networks and Dockerfile build | Docker |
+  | `windows_vm` | `git_cgallagher.molecule.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1 | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
 
-  Plus **`git_cgallagher.testlab.ad_forest`**, a prepare-time role that promotes a
+  Plus **`git_cgallagher.molecule.ad_forest`**, a prepare-time role that promotes a
   `windows_vm` to the first DC of a new forest.
 - **`setup-molecule`**, a composite GitHub Action that installs Python, ansible-core,
   Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked).
@@ -32,7 +34,7 @@ dependency:
   options:
     requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/../../requirements.yml
 driver:
-  name: molecule-testlab
+  name: molecule-git-cgallagher
 provisioner:
   name: ansible
   env:
@@ -84,24 +86,24 @@ prebuilt images are always pulled (for `platform`, that architecture).
 
 **windows_vm**: `box_url`, `box_sha256`, `box_user`, `box_password`, `winrm_port` (required),
 `memory_mb` (4096), `cpus` (2), `forwards`. The box is cached by checksum in the lab directory: the
-`testlab_dir` inventory variable, else `$TESTLAB_DIR`, else `~/.cache/testlab`.
+`$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else `~/.cache/molecule-lab`.
 
 ## Install
 
 Locally, at one tag:
 
 ```bash
-pip install "molecule-testlab[windows] @ git+https://github.com/git-cgallagher/ansible-collection-testlab@v0.1.0"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.1.0"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-testlab.git,v0.1.0
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.1.0
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-testlab/.github/actions/setup-molecule@<sha>  # v0.1.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.1.0
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
@@ -113,13 +115,13 @@ In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 Without the pip package, a scenario can use `driver: default` (`options: {managed: true}`) and a
 `create.yml`/`destroy.yml` that each hold one line,
-`ansible.builtin.import_playbook: git_cgallagher.testlab.create` (or `.destroy`).
+`ansible.builtin.import_playbook: git_cgallagher.molecule.create` (or `.destroy`).
 
 ## Adding a kind
 
 A kind is a role in this collection with `create` and `destroy` entry points. It reads
-`testlab_platform` (one `molecule.yml` platform) and `testlab_lab_dir`, checks the platform's keys,
-appends its Molecule instance-config entries to `<kind>_instances`, and is listed in `testlab_kinds`
+`molecule_platform` (one `molecule.yml` platform) and `molecule_lab_dir`, checks the platform's keys,
+appends its Molecule instance-config entries to `<kind>_instances`, and is listed in `molecule_kinds`
 in `playbooks/create.yml` and `playbooks/destroy.yml`.
 
 ## License

@@ -1,4 +1,0 @@
----
-# Bundled destroy for the testlab driver: the logic lives in the collection.
-- name: Destroy
-  ansible.builtin.import_playbook: git_cgallagher.testlab.destroy

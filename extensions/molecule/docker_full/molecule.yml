@@ -5,26 +5,26 @@
 # image's own CMD) and an emulated linux/amd64 container. Runs on any Docker
 # host, a Mac included.
 platforms:
-  - name: testlab-built
-    image: testlab-built-node
+  - name: molecule-built
+    image: molecule-built-node
     dockerfile: Dockerfile
     pre_build_image: false
     hostname: built.example.test
     command: [python3, -m, http.server, '8000']
     env:
-      TESTLAB_FOO: bar
+      LAB_FOO: bar
     tmpfs: [/scratch]
     volumes: [/data]
     published_ports: ['127.0.0.1:18199:8000/tcp']
-    docker_networks: &testlab_network
-      - name: testlab-full
+    docker_networks: &lab_network
+      - name: molecule-full
         ipam_config:
           - subnet: 172.31.99.0/24
             gateway: 172.31.99.1
     networks:
-      - name: testlab-full
+      - name: molecule-full
         ipv4_address: 172.31.99.11
-  - name: testlab-systemd
+  - name: molecule-systemd
     image: geerlingguy/docker-debian12-ansible:latest
     command: ""
     privileged: true
@@ -36,11 +36,11 @@ platforms:
       # (linux/amd64 on arm64) container on the host. Masking it prevents that.
       - /dev/null:/etc/systemd/system/systemd-binfmt.service:ro
     tmpfs: [/run, /tmp]
-    docker_networks: *testlab_network
+    docker_networks: *lab_network
     networks:
-      - name: testlab-full
+      - name: molecule-full
         ipv4_address: 172.31.99.12
     groups: [systemd]
-  - name: testlab-amd64
+  - name: molecule-amd64
     image: python:3.13-slim
     platform: linux/amd64

@@ -5,10 +5,10 @@
   tasks:
     - name: Promote
       ansible.builtin.include_role:
-        name: git_cgallagher.testlab.ad_forest
+        name: git_cgallagher.molecule.ad_forest
       vars:
         ad_forest_domain: "{{ lab_domain }}"
-        ad_forest_netbios: TESTLAB
+        ad_forest_netbios: MOLECULELAB
         # Throwaway VM reachable only on the runner's loopback.
         ad_forest_dsrm_password: Example-not-secret-1
         ad_forest_hostname: dc01

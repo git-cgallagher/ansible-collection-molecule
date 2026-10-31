@@ -4,7 +4,7 @@
       "properties": {
         "name": {
           "enum": [
-            "molecule-testlab"
+            "molecule-git-cgallagher"
           ],
           "title": "Name",
           "type": "string"
@@ -91,7 +91,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/git-cgallagher/ansible-collection-testlab/main/molecule_testlab/schema/driver.json",
+  "$id": "https://raw.githubusercontent.com/git-cgallagher/ansible-collection-molecule/main/molecule_git_cgallagher/schema/driver.json",
   "$schema": "http://json-schema.org/draft-07/schema",
   "examples": [
     "molecule/*/molecule.yml"

@@ -8,11 +8,11 @@ dependency:
   options:
     requirements-file: ${MOLECULE_PROJECT_DIRECTORY}/extensions/molecule/requirements.yml
 driver:
-  name: molecule-testlab
+  name: molecule-git-cgallagher
 provisioner:
   name: ansible
   env:
-    # Expose this checkout as git_cgallagher.testlab (see AGENTS.md).
+    # Expose this checkout as git_cgallagher.molecule (see AGENTS.md).
     ANSIBLE_COLLECTIONS_PATH: ${MOLECULE_PROJECT_DIRECTORY}/.molecule-collections:${MOLECULE_PROJECT_DIRECTORY}/collections:~/.ansible/collections
 verifier:
   name: ansible

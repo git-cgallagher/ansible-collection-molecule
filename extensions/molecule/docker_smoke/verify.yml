@@ -10,12 +10,12 @@
     - name: Require one docker-connection entry per platform
       ansible.builtin.assert:
         that:
-          - smoke_instances | map(attribute='instance') | sort == ['testlab-smoke1', 'testlab-smoke2']
+          - smoke_instances | map(attribute='instance') | sort == ['molecule-smoke1', 'molecule-smoke2']
           - smoke_instances | map(attribute='connection') | unique == ['community.docker.docker']
         fail_msg: "{{ smoke_instances | to_json }}"
 
 - name: Check the platform options reached docker run
-  hosts: testlab-smoke2
+  hosts: molecule-smoke2
   gather_facts: false
   tasks:
     - name: Read the hostname

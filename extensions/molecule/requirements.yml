@@ -1,6 +1,6 @@
 ---
 # Collections the self-test scenarios need. The scenarios use this checkout
-# through .molecule-collections, not an install, so git_cgallagher.testlab's
+# through .molecule-collections, not an install, so git_cgallagher.molecule's
 # own galaxy.yml dependencies are listed here as well.
 collections:
   - name: community.docker   # the docker connection

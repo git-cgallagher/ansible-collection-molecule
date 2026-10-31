@@ -1,7 +1,7 @@
-name: Set up Molecule with the molecule-testlab driver
+name: Set up Molecule with the molecule-git-cgallagher driver
 description: >-
-  Python, ansible-core, Molecule, the molecule-testlab driver and the
-  git_cgallagher.testlab collection (both from this action's own ref, so one
+  Python, ansible-core, Molecule, the molecule-git-cgallagher driver and the
+  git_cgallagher.molecule collection (both from this action's own ref, so one
   SHA pin versions all three), plus a collection's test requirements. Exposes
   the checkout as <namespace>.<name> for Molecule; optionally enables KVM and
   QEMU and a lab directory on the runner's large /mnt disk for windows_vm platforms.
@@ -33,7 +33,7 @@ inputs:
   lab-dir:
     description: >-
       If set, create this directory (owned by the runner user) and export it as
-      TESTLAB_DIR. windows_vm needs ~20 GB, more than the root filesystem has; use /mnt/....
+      MOLECULE_LAB_DIR. windows_vm needs ~20 GB, more than the root filesystem has; use /mnt/....
     required: false
     default: ''
 runs:
@@ -63,7 +63,7 @@ runs:
       run: |
         sudo mkdir -p "$LAB_DIR"
         sudo chown "$USER" "$LAB_DIR"
-        echo "TESTLAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
+        echo "MOLECULE_LAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
         df -h "$LAB_DIR" /
 
     # The action's own checkout is the whole repository at the pinned ref:

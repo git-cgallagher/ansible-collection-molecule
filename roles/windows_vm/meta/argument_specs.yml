@@ -3,7 +3,7 @@ argument_specs:
   main:
     short_description: Boot a windows_vm-kind platform (alias of the create entry point)
     options: &windows_vm_options
-      testlab_platform:
+      molecule_platform:
         type: dict
         required: true
         description:
@@ -15,10 +15,10 @@ argument_specs:
         type: path
         description:
           - Box cache, VM disk, pidfile and QEMU monitor socket.
-          - Defaults to C(testlab_lab_dir) (set by the create/destroy playbooks), else C(~/.cache/testlab).
+          - Defaults to C(molecule_lab_dir) (set by the create/destroy playbooks), else C(~/.cache/molecule-lab).
       windows_vm_name_prefix:
         type: str
-        default: testlab
+        default: molecule
         description: Prefix of the QEMU process name.
       windows_vm_first_boot_retries:
         type: int

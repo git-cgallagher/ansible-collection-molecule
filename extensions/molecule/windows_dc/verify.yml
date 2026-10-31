@@ -28,7 +28,7 @@
 # DNS port on 127.0.0.1 is reachable from it, as Kea reaches it in
 # git_cgallagher.isc's ms-dns scenario.
 - name: Query the DC's DNS from the container through the port forward
-  hosts: testlab-client
+  hosts: molecule-client
   gather_facts: false
   tasks:
     - name: Ask for the domain controllers' LDAP SRV record

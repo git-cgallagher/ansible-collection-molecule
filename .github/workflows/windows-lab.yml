@@ -15,7 +15,7 @@ on:
       - roles/ad_forest/**
       - roles/docker/**
       - playbooks/**
-      - molecule_testlab/**
+      - molecule_git_cgallagher/**
       - extensions/molecule/windows_dc/**
       - .github/actions/**
       - .github/workflows/windows-lab.yml
@@ -53,10 +53,10 @@ jobs:
       # and the VM disk don't fit on the ~14 GB root filesystem.
       - uses: ./.github/actions/setup-molecule
         with:
-          collection: git_cgallagher.testlab
+          collection: git_cgallagher.molecule
           requirements: extensions/molecule/requirements.yml
           kvm: 'true'
-          lab-dir: /mnt/testlab
+          lab-dir: /mnt/molecule-lab
 
       # --destroy=never: keep the VM for the diagnostics below; the last step
       # destroys it either way. A hang must become a failure, so the screen
@@ -70,7 +70,7 @@ jobs:
         timeout-minutes: 2
         uses: ./.github/actions/vm-screendump
         with:
-          lab-dir: /mnt/testlab
+          lab-dir: /mnt/molecule-lab
           platform: dc01
 
       - name: Upload diagnostics
@@ -78,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: windows-lab-diagnostics
-          path: /mnt/testlab/*-screen.ppm
+          path: /mnt/molecule-lab/*-screen.ppm
           if-no-files-found: ignore
           retention-days: 7
 

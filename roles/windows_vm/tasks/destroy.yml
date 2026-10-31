@@ -3,9 +3,9 @@
 # box image stays cached in windows_vm_dir; only this run's disk goes.
 - name: Work out paths
   ansible.builtin.set_fact:
-    windows_vm_overlay: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.qcow2"
-    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ testlab_platform.name }}.pid"
-    windows_vm_monitor: "{{ windows_vm_dir }}/{{ testlab_platform.name }}-monitor.sock"
+    windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
+    windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
 
 - name: Read the QEMU pidfile
   ansible.builtin.slurp:

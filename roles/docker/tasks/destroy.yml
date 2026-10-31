@@ -2,7 +2,7 @@
 # Safe when nothing exists (Molecule destroys before create, too).
 - name: Remove the container
   ansible.builtin.command:
-    argv: [docker, rm, --force, --volumes, "{{ testlab_platform.name }}"]
+    argv: [docker, rm, --force, --volumes, "{{ molecule_platform.name }}"]
   register: docker_rm
   changed_when: docker_rm.rc == 0
   failed_when: false
@@ -12,7 +12,7 @@
 - name: Look for the platform's Docker networks
   ansible.builtin.command:
     argv: [docker, network, inspect, "{{ item.name }}"]
-  loop: "{{ testlab_platform.docker_networks | default([]) }}"
+  loop: "{{ molecule_platform.docker_networks | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
   register: docker_network_inspect
