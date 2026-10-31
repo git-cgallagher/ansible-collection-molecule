@@ -1,8 +1,8 @@
 ---
 # Boots a Windows box under QEMU/KVM on the controller and appends its
-# Molecule instance-config entry to windows_vm_instances. Shared by
-# git_cgallagher.gpo's domain_lab and git_cgallagher.isc's
-# kea_dhcp_msdns_windows, which each carried a copy of these tasks.
+# Molecule instance-config entry to windows_vm_instances. Replaces the copies
+# of these tasks in git_cgallagher.windows' (formerly gpo) tests/domain_lab
+# and git_cgallagher.isc's kea_dhcp_msdns/windows scenario.
 - name: Check the platform's keys
   ansible.builtin.assert:
     that:

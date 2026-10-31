@@ -8,7 +8,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.testlab`: create/destroy dispatch, kinds `docker` and `windows_vm`, role `ad_forest` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
 | `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` (KVM only); `config.yml` is their shared base config | not shipped |
-| `docs/MIGRATION.md` | the per-repo plan for isc and gpo | — |
+| `docs/MIGRATION.md` | the per-repo plan for isc and windows (formerly gpo) | — |
 
 ## Commands
 
@@ -89,7 +89,7 @@ PyPI publishing aren't set up yet (TODO below).
 - A non-editable `pip install .` (what setup-molecule does) ships `playbooks/*.yml` and
   `schema/driver.json`, and `molecule --version` lists `molecule-testlab`.
 - **Not verified yet:** `windows_vm` booting a VM and `ad_forest` (CI `windows-lab` only), the
-  setup-molecule action (first CI run), and the isc/gpo Windows scenarios on the driver.
+  setup-molecule action (first CI run), and the isc and windows repos' Windows scenarios on the driver.
 
 ## TODO
 
@@ -98,4 +98,4 @@ PyPI publishing aren't set up yet (TODO below).
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
-- isc and gpo migrations: `docs/MIGRATION.md`.
+- isc and windows (formerly gpo) migrations: `docs/MIGRATION.md`.

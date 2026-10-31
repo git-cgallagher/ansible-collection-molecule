@@ -7,7 +7,7 @@ Status 2026-10-31: proposal. Nothing in the consumer repos has changed yet.
 | Repo | Molecule today | Change |
 |---|---|---|
 | `ansible-collection-isc` | 8 scenarios in `roles/<role>/molecule/` (moved there in PR #13, merged 2026-10-31): 7 on molecule-plugins' docker driver, `kea_dhcp_msdns/windows` on the default driver with its own 290-line create/destroy | **Yes**: below |
-| `ansible-collection-gpo` | `molecule/domain_lab` (default driver, its own create/destroy). A move to `roles/gpo_import/molecule/default`, with create/destroy in `tests/domain_lab/`, was in progress on `feat/role-molecule` when this was written | **Yes**, after that move lands |
+| `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | `roles/gpo_backup/molecule/default` and `roles/gpo_import/molecule/default` (PR #17): default driver, with a shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Yes**, after its `git_cgallagher.gpo` → `git_cgallagher.windows` rename PR merges |
 | `ansible-collection-orchestration` | none (ansible-test only; a strategy plugin) | No |
 | `ansible-collection-stork`, `ansible-role-kea-dhcp` | archived, read-only | No |
 
@@ -17,7 +17,7 @@ Status 2026-10-31: proposal. Nothing in the consumer repos has changed yet.
 |---|---|---|
 | pip, per Molecule job | `ansible-core molecule 'molecule-plugins[docker]' docker` (+ `pypsrp` for Windows) | `ansible-core molecule molecule-testlab` (from the action) |
 | collections, per job | repo `requirements.yml` + `community.docker` (+ `ansible.windows`, `microsoft.ad` from a scenario `requirements.yml`) | repo `requirements.yml` + `git_cgallagher.testlab` (brings `community.docker`, `ansible.windows`, `microsoft.ad`) |
-| per-scenario files | `molecule.yml` with dependency/driver/provisioner env/verifier/test_sequence; the Windows scenarios add `create.yml` + `destroy.yml` (~290 lines, copied between gpo and isc) and a `requirements.yml` | `molecule.yml` = platforms + inventory; no create/destroy anywhere |
+| per-scenario files | `molecule.yml` with dependency/driver/provisioner env/verifier/test_sequence; the Windows scenarios add `create.yml` + `destroy.yml` (~290 lines, copied between the windows and isc repos) and a `requirements.yml` | `molecule.yml` = platforms + inventory; no create/destroy anywhere |
 | CI setup, per job | 4-15 lines (pip, galaxy, symlink; KVM, QEMU and lab dir for Windows) | one `uses:` step |
 | mixed drivers | a job needs every driver its sibling scenarios use (isc 8d63b31: `windows-dc` installs the docker driver for a scenario it never runs) | one driver for all scenarios |
 
@@ -166,20 +166,28 @@ emulated scenario run after them. Adding
 `/dev/null:/etc/systemd/system/systemd-binfmt.service:ro` to their `volumes` prevents it (see this
 repo's AGENTS.md); GitHub's amd64 runners don't emulate, so CI is unaffected either way.
 
-## ansible-collection-gpo
+## ansible-collection-windows (formerly ansible-collection-gpo)
 
-After the per-role move on `feat/role-molecule` merges (don't stack on an unmerged branch; check
-with the session doing it). Then one PR:
+State on `main` 428b85d (2026-10-31): Molecule runs from the role directory, and
+`.config/molecule/config.yml` already holds the shared platform (`dc01`), inventory and
+`provisioner.playbooks` pointing at `tests/domain_lab/create.yml` / `destroy.yml`.
+`tests/domain_lab/` also has `promote.yml`, `seed.yml`, `files/lab_fixture.ps1` and
+`requirements.yml`. The session that owns the repo is renaming the collection to
+`git_cgallagher.windows` (0.2.0). This PR comes after that one, and after checking with that
+session.
 
-1. Add `.config/molecule/config.yml` as for isc (gpo has no repo `requirements.yml` today: either
-   point `requirements-file` at one, or drop `dependency:`; the testlab collection brings
-   `ansible.windows` and `microsoft.ad`). Add `.config` to `build_ignore`.
-2. Delete the shared `create.yml`/`destroy.yml` (`tests/domain_lab/` on that branch) and the
-   scenario `requirements.yml`.
-3. `molecule.yml`: delete `dependency:`/`driver:`/`provisioner.name`/`env`/`verifier:`; `dc01` gets
-   `kind: windows_vm` (no `forwards`: WinRM only). Keep `lab_dir`, which the scenario uses for its GPO
-   export repos: `lab_dir: "{{ lookup('ansible.builtin.env', 'TESTLAB_DIR') | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/gpo-domain-lab', true) }}"`.
-4. `prepare.yml`: the promotion play becomes `ad_forest` with
+One PR:
+
+1. `.config/molecule/config.yml`:
+   - `driver: {name: molecule-testlab}`, replacing `name: default` + `options.managed`;
+   - delete `provisioner.playbooks` (the create/destroy paths);
+   - `dc01` gets `kind: windows_vm`, and no `forwards` (WinRM only);
+   - in `group_vars.all`, read `lab_dir` from `TESTLAB_DIR` (what setup-molecule exports) instead of
+     `GPO_LAB_DIR`, and add `testlab_dir: "{{ lab_dir }}"`, so the box cache and VM disk stay next to
+     the GPO export repos.
+2. Delete `tests/domain_lab/create.yml` and `destroy.yml`.
+3. `tests/domain_lab/promote.yml`: the promotion tasks (connection wait through the reconnect)
+   become `git_cgallagher.testlab.ad_forest` with
 
    ```yaml
    ad_forest_domain: "{{ lab_domain }}"
@@ -196,12 +204,14 @@ with the session doing it). Then one PR:
    ad_forest_admin_groups: [Domain Admins, Group Policy Creator Owners]
    ```
 
-   then the "Show the domain" tasks and the seed/export play, unchanged.
-5. `domain-lab.yml`: KVM/QEMU, lab-dir, install and symlink steps → `setup-molecule` with
-   `collection: git_cgallagher.gpo`, `kvm: 'true'`, `lab-dir: /mnt/gpo-lab`; screen capture →
-   `vm-screendump` (`dc01-screen.ppm`); the artifact upload keeps `gpo-repo*/`. `GPO_LAB_DIR` →
-   `TESTLAB_DIR`. Still not a required check.
-6. Docs: AGENTS.md, README "Running the lab", CHANGELOG.
+   `seed.yml`, the fixture and the scenarios' own prepare/converge/verify stay as they are.
+4. `tests/domain_lab/requirements.yml` can stay for local runs; in CI the action installs the
+   testlab collection, which brings `ansible.windows` and `microsoft.ad`.
+5. The domain-lab workflow: the KVM/QEMU, lab-dir, install and symlink steps become `setup-molecule`
+   with `collection: git_cgallagher.windows`, `kvm: 'true'` and `lab-dir: /mnt/gpo-lab`; the screen
+   capture becomes `vm-screendump` (the file is now `dc01-screen.ppm`); the artifact upload keeps
+   `gpo-repo*/`; `GPO_LAB_DIR` becomes `TESTLAB_DIR`. Still not a required check.
+6. Docs: AGENTS.md, `tests/domain_lab/README.md`, CHANGELOG.
 
 ## Order
 
@@ -209,6 +219,6 @@ with the session doing it). Then one PR:
    green once, tag `v0.1.0`.
 2. isc PR (the docker scenarios prove the docker kind on every PR; run `windows-dc` by hand on the
    PR branch to prove `windows_vm` + `ad_forest` against isc).
-3. gpo PR, after its per-role move. `domain-lab` runs on the PR (path filter).
+3. windows PR, after its collection rename merges. Its domain-lab workflow runs on the PR (path filter).
 4. Galaxy and PyPI publishing are optional: consumers pin the action's SHA, which installs the
    driver and the collection from that same commit.
