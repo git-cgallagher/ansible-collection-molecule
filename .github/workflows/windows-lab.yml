@@ -77,6 +77,16 @@ jobs:
         timeout-minutes: 75
         run: molecule test -s ${{ matrix.scenario }} --destroy=never
 
+      # Separates "a hub never ran or died" from "frames don't cross" from
+      # "Windows' firewall" when a lab network test fails.
+      - name: Show the lab network hubs
+        if: failure()
+        timeout-minutes: 1
+        run: |
+          ss -ulnp | grep -i python || true
+          for f in /mnt/molecule-lab/hub-*.pid; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
+          ps -eo pid,args | grep '[l]ab_hub' || true
+
       - name: Capture the VM screen
         if: failure()
         timeout-minutes: 2

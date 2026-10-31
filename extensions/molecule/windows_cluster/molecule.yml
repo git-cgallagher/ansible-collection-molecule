@@ -29,6 +29,9 @@ provisioner:
   inventory:
     group_vars:
       all:
+        # Two VMs share the runner's 4 vCPUs during their first boot: allow
+        # 20 min instead of the single-VM 15.
+        windows_vm_first_boot_retries: 120
         ansible_psrp_protocol: http
         # Nested-virt VMs occasionally drop a connection; retry instead of failing.
         ansible_psrp_reconnection_retries: 3

@@ -95,9 +95,9 @@ A scenario can list several `windows_vm` platforms, each with its own `winrm_por
 ports; a clash fails the run). They all start before the driver waits for any of them, so they boot
 side by side rather than one after another.
 
-Each VM's first NIC, named `management` in Windows, is QEMU user networking: it carries WinRM and the
-`forwards`, all on 127.0.0.1. It has the same address (10.0.2.15) on every VM and can't reach the
-others. For VM-to-VM traffic, give the VMs a **lab network**:
+Each VM's first NIC is QEMU user networking: it carries WinRM and the `forwards`, all on 127.0.0.1.
+It has the same address (10.0.2.15) on every VM and can't reach the others. For VM-to-VM traffic,
+give the VMs a **lab network**:
 
 ```yaml
 platforms:
@@ -117,8 +117,8 @@ platforms:
 
 VMs that list the same network name share an Ethernet segment, and a VM can be on several networks
 (cluster and storage, say). The driver adds one NIC per network, names it after the network in
-Windows, gives it the static address, files it as a Private network, and keeps the management NIC out
-of DNS registration. It needs no root: each network is a small UDP hub on 127.0.0.1
+Windows, gives it the static address and files it as a Private network. On a VM with lab networks it
+also renames the first NIC `management` and keeps it out of DNS registration. It needs no root: each network is a small UDP hub on 127.0.0.1
 (`roles/windows_vm/files/lab_hub.py`) that QEMU's socket NICs talk to. Containers can't join a lab
 network; they reach VMs through the forwards.
 
