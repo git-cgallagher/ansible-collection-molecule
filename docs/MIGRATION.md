@@ -7,7 +7,7 @@ Status 2026-10-31: proposal. Nothing in the consumer repos has changed yet.
 | Repo | Molecule today | Change |
 |---|---|---|
 | `ansible-collection-isc` | 8 scenarios in `roles/<role>/molecule/` (moved there in PR #13, merged 2026-10-31): 7 on molecule-plugins' docker driver, `kea_dhcp_msdns/windows` on the default driver with its own 290-line create/destroy | **Yes**: below |
-| `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | `roles/gpo_backup/molecule/default` and `roles/gpo_import/molecule/default` (PR #17): default driver, with a shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Yes**, after its `git_cgallagher.gpo` → `git_cgallagher.windows` rename PR merges |
+| `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | `roles/gpo_backup/molecule/default` and `roles/gpo_import/molecule/default` (PR #17): default driver, with a shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Yes**, after the port of the old ansible-windows modules into it merges (in progress 2026-10-31; that repo's session will say when) |
 | `ansible-collection-orchestration` | none (ansible-test only; a strategy plugin) | No |
 | `ansible-collection-stork`, `ansible-role-kea-dhcp` | archived, read-only | No |
 
@@ -168,13 +168,15 @@ repo's AGENTS.md); GitHub's amd64 runners don't emulate, so CI is unaffected eit
 
 ## ansible-collection-windows (formerly ansible-collection-gpo)
 
-State on `main` 428b85d (2026-10-31): Molecule runs from the role directory, and
+State on `main` 00e66cd (2026-10-31, after PR #18 renamed the collection to
+`git_cgallagher.windows` 0.2.0; local checkout `~/Code/ansible-collection-windows`): Molecule runs
+from the role directory, and
 `.config/molecule/config.yml` already holds the shared platform (`dc01`), inventory and
 `provisioner.playbooks` pointing at `tests/domain_lab/create.yml` / `destroy.yml`.
 `tests/domain_lab/` also has `promote.yml`, `seed.yml`, `files/lab_fixture.ps1` and
-`requirements.yml`. The session that owns the repo is renaming the collection to
-`git_cgallagher.windows` (0.2.0). This PR comes after that one, and after checking with that
-session.
+`requirements.yml`. The session that owns the repo is now porting the old ansible-windows modules
+into it, with tests on the same lab files (`tests/domain_lab/`, the base config, `domain-lab.yml`).
+This PR waits until that port merges (that session will say when), and is Chris's call.
 
 One PR:
 
@@ -219,6 +221,6 @@ One PR:
    green once, tag `v0.1.0`.
 2. isc PR (the docker scenarios prove the docker kind on every PR; run `windows-dc` by hand on the
    PR branch to prove `windows_vm` + `ad_forest` against isc).
-3. windows PR, after its collection rename merges. Its domain-lab workflow runs on the PR (path filter).
+3. windows PR, after the ansible-windows module port merges. Its domain-lab workflow runs on the PR (path filter).
 4. Galaxy and PyPI publishing are optional: consumers pin the action's SHA, which installs the
    driver and the collection from that same commit.

@@ -93,6 +93,8 @@ PyPI publishing aren't set up yet (TODO below).
   `molecule test` on the driver, in a scratch clone of isc `main` 9d20478 with
   `docs/isc-scenarios.patch` applied, and so does `kea_dhcp/default --platform-name kea-debian12`
   (only that container is created); isc's converted Windows scenario validates up to `/dev/kvm`.
+- After the rename to `git_cgallagher.molecule` / `molecule-git-cgallagher`: lint, sanity,
+  `docker_smoke`, `docker_full` and isc `kea_dhcp/default --platform-name kea-debian12` re-run green.
 - A non-editable `pip install .` (what setup-molecule does) ships `playbooks/*.yml` and
   `schema/driver.json`, and `molecule --version` lists `molecule-git-cgallagher`.
 - **Not verified yet:** `windows_vm` booting a VM and `ad_forest` (CI `windows-lab` only), the
