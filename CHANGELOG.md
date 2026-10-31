@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## 0.1.0 (2026-10-31)
 
 First release: the molecule-git-cgallagher driver (pip), the git_cgallagher.molecule collection and the
 setup-molecule action, from one repo and one tag.

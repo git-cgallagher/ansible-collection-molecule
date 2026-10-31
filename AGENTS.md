@@ -56,9 +56,24 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
 ## Releasing
 
 Merge to `main` with `galaxy.yml` and `pyproject.toml` versions bumped together and a CHANGELOG entry,
-then tag `vX.Y.Z` on the merge commit. Consumers pin the setup-molecule action's commit SHA (with a
+then tag `vX.Y.Z` (annotated) on the merge commit; `v0.1.0` is the first. Consumers pin the setup-molecule action's commit SHA (with a
 `# vX.Y.Z` comment), which installs the driver and the collection from that same commit. Galaxy and
 PyPI publishing aren't set up yet (TODO below).
+
+## Repo settings (public-repo baseline, applied 2026-10-31)
+
+- Ruleset **"main protection"** (id `26286539`) on the default branch: active, no bypass actors,
+  deletion and force-push blocked, PR required with 0 approvals, and these checks required (GitHub
+  Actions, integration `15368`): `lint`, `sanity (stable-2.18)`, `sanity (stable-2.19)`,
+  `sanity (stable-2.20)`, `sanity (stable-2.21)`, `molecule docker_smoke`, `molecule docker_full`.
+  Not required, on purpose: `sanity (devel, venv)` (an upstream canary) and the two `windows-lab`
+  jobs (path-filtered, and they depend on a third-party box download). Still merge only when those
+  are green too: merges are by hand, and repo auto-merge is off.
+- Secret scanning + push protection, Dependabot alerts + security updates, private vulnerability
+  reporting (`SECURITY.md`), CodeQL default setup (`python`, `actions`), delete branch on merge;
+  wiki and projects off. Actions are SHA-pinned; `.github/dependabot.yml` keeps them current.
+- Pushes go over SSH (`git@github.com:`): the `gh` token has no `workflow` scope, so HTTPS pushes
+  that touch `.github/workflows/` are refused.
 
 ## ⚠️ Gotchas
 
@@ -123,15 +138,20 @@ PyPI publishing aren't set up yet (TODO below).
   calculation gives distinct hub blocks, member ports in platform order and unique MACs, and the
   rendered NIC script parses in PowerShell 7 and passes PSScriptAnalyzer. Duplicate lab addresses,
   clashing host ports and bad `lab_networks` keys fail with a message.
-- **Not verified yet:** `windows_vm` booting a VM, `ad_forest`, and two VMs on a lab network (CI
-  `windows-lab`: `windows_dc`, `windows_cluster`); QEMU's socket netdev against the hub (no QEMU on the
-  Mac); the setup-molecule action (first CI run); and the isc and windows repos' Windows scenarios on
-  the driver.
+- In CI (PR #1, the initial collection; GitHub `ubuntu-latest`, KVM): the setup-molecule action
+  installs everything from its own ref, and every check passes, including both `windows-lab` jobs:
+  `windows_dc` (a Windows Server 2022 VM promoted to a new forest by `ad_forest`, its DNS queried
+  from a host-network container through the forward; ~10 min) and `windows_cluster` (two VMs booted
+  side by side; node1 starts the `cluster` hub, node2 finds it; the ready step configures both lab
+  NICs; each node reaches the other's WinRM port over the lab network; ~6 min).
+- Released as `v0.1.0` (annotated tag on merge commit `d9421b5`): the README's pip and
+  ansible-galaxy install lines both work against the tag (the driver registers with Molecule, the
+  `windows` extra brings `pypsrp`, the collection installs with its three roles).
+- **Not verified yet:** the isc and windows repos' Windows scenarios on the driver (their
+  migrations), and lab networks with more than two VMs or more than one network per VM.
 
 ## TODO
 
-- Publish the repo (public baseline), then run `ci` and `windows-lab` once and add the stable
-  checks to the ruleset.
 - Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
   extra data disks per VM: not supported yet.
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
