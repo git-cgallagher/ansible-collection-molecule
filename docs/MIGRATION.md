@@ -1,21 +1,19 @@
 # Moving the git_cgallagher repos onto molecule-git-cgallagher
 
-Status 2026-10-31: **isc is on the driver** ([isc PR #18](https://github.com/git-cgallagher/ansible-collection-isc/pull/18),
-released as 2.0.1). **windows is next**, once that repo's open PRs land: wsfc
-([PR 20 there](https://github.com/git-cgallagher/ansible-collection-windows/pull/20)) and the IIS modules
-([PR 22 there](https://github.com/git-cgallagher/ansible-collection-windows/pull/22)) change the same lab files.
-Tracking: [issue #3](https://github.com/git-cgallagher/ansible-collection-molecule/issues/3).
+Status 2026-11-01: **done.** isc, orchestration and windows all run their Molecule scenarios on
+the driver, and none of them has its own create/destroy any more. Tracking:
+[issue #3](https://github.com/git-cgallagher/ansible-collection-molecule/issues/3).
 
 ## Which repos
 
 | Repo | Molecule before | Status |
 |---|---|---|
-| `ansible-collection-isc` | 8 scenarios in `roles/<role>/molecule/`: 7 on molecule-plugins' docker driver, `kea_dhcp_msdns/windows` on the default driver with its own 290-line create/destroy | **Done**: isc PR #18, 2.0.1, merged 2026-10-31 |
-| `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | one scenario per role (`roles/<role>/molecule/default`), plus `tests/integration/molecule/iis` with PR 22: default driver, shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Next**, after its PRs 20 and 22 merge (that repo's session will say when) |
-| `ansible-collection-orchestration` | since 2026-10-31 one scenario, `extensions/molecule/default`: four `python:3.13-slim` containers on molecule-plugins' docker driver | Candidate, not planned: it fits the docker kind and `platform_defaults` (below) |
+| `ansible-collection-isc` | 8 scenarios in `roles/<role>/molecule/`: 7 on molecule-plugins' docker driver, `kea_dhcp_msdns/windows` on the default driver with its own 290-line create/destroy | **Done**: [isc PR #18](https://github.com/git-cgallagher/ansible-collection-isc/pull/18), 2.0.1, merged 2026-10-31 |
+| `ansible-collection-orchestration` | one scenario, `extensions/molecule/default`: four `python:3.13-slim` containers on molecule-plugins' docker driver | **Done**: [orchestration PR #15](https://github.com/git-cgallagher/ansible-collection-orchestration/pull/15), merged 2026-11-01 (test-only, no release) |
+| `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | one scenario per role (`roles/<role>/molecule/default`) plus `tests/integration/molecule/iis`: default driver, shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Done**: [windows PR #23](https://github.com/git-cgallagher/ansible-collection-windows/pull/23), merged 2026-11-01 (test-only, no release) |
 | `ansible-collection-stork`, `ansible-role-kea-dhcp` | deleted 2026-10-31 | No |
 
-## What gets smaller
+## What got smaller
 
 | | Before | After |
 |---|---|---|
@@ -52,80 +50,63 @@ Verified on the PR: all 22 required checks passed, and `windows-dc` passed when 
 branch. That run booted the VM through `windows_vm`, promoted it with `ad_forest`, and read Kea's
 GSS-TSIG updates back from Microsoft DNS.
 
-## ansible-collection-windows (next)
+## ansible-collection-orchestration (done)
 
-Expected state after its PRs 20 and 22 (both still open on 2026-10-31):
+Chris asked for it on 2026-11-01. orchestration PR #15, merged as `6334663`:
 
-- The base config `.config/molecule/config.yml` holds `platforms: [{name: dc01}]`, the box pin and VM
-  size as a `lab_vm` group var (PR 22), and `provisioner.playbooks` pointing at
-  `tests/domain_lab/create.yml` and `destroy.yml`. Those playbooks merge `lab_vm` under each
-  scenario's platform entry.
-- Scenarios:
-  - `roles/gpo_backup` and `roles/gpo_import`: the domain labs.
-  - `roles/wsfc` (PR 20): a one-node workgroup cluster on `dc01`, never promoted.
-  - `tests/integration/molecule/iis` (PR 22): its own VM, `iis01`, never a DC.
-- `tests/domain_lab/` also has `promote.yml`, `seed.yml`, `files/lab_fixture.ps1` and
-  `requirements.yml`.
-- The domain-lab workflow's matrix has `name`, `workdir`, `scenario` and `vm` per entry.
+- Its scenario is `driver.options.platform_defaults: {image: docker.io/library/python:3.13-slim}`
+  plus four named platforms: no YAML anchor, and no `pre_build_image` or `command`, which are the
+  defaults.
+- Its Molecule CI job is one setup-molecule step, with `extensions/molecule/requirements.txt` as
+  `constraints` (it dropped `molecule-plugins` and `docker`). The job keeps its name, `molecule`, a
+  required check there.
+- Test-only: the version stayed 0.2.2, so its Galaxy publishing had nothing to do.
 
-One PR (re-check all of this against `main` first):
+Verified on the PR: all 16 checks, devel included. Three local runs spaced task starts by 1.948 to
+2.069 s, inside the owner's 1.90 to 2.08 s window, and a deliberately broken run (its control task
+spaced too) failed verify, as it should.
 
-1. `.config/molecule/config.yml`:
-   - `driver: {name: molecule-git-cgallagher}` replaces `name: default` + `options.managed`.
-   - `kind: windows_vm` and PR 22's `lab_vm` contents (box pin, size, `winrm_port`) move into
-     `driver.options.platform_defaults`, and the `lab_vm` group var goes.
-     `platforms: [{name: dc01}]` stays, so iis's `- name: iis01` still inherits the box.
-   - Delete `provisioner.playbooks` (the create/destroy paths).
-   - In `group_vars.all`, read `lab_dir` from `MOLECULE_LAB_DIR` (what setup-molecule exports)
-     instead of `GPO_LAB_DIR`. The driver keeps the box cache and VM disk in `$MOLECULE_LAB_DIR`, so
-     they stay next to the GPO export repos.
-2. Delete `tests/domain_lab/create.yml` and `destroy.yml`.
-3. `tests/domain_lab/promote.yml`: the promotion tasks (connection wait through the reconnect)
-   become `git_cgallagher.molecule.ad_forest` with
+## ansible-collection-windows (done)
 
-   ```yaml
-   ad_forest_domain: "{{ lab_domain }}"
-   ad_forest_netbios: "{{ lab_netbios }}"
-   ad_forest_dsrm_password: "{{ lab_dsrm_password }}"
-   ad_forest_features: [AD-Domain-Services, GPMC, RSAT-AD-PowerShell]
-   ad_forest_ready_modules: [ActiveDirectory, GroupPolicy]
-   ad_forest_ready_test: >-
-     $netlogon = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters' -ErrorAction Stop;
-     if ($netlogon.SysvolReady -ne 1) { exit 1 };
-     if (-not (Get-SmbShare -Name SYSVOL -ErrorAction SilentlyContinue)) { exit 1 };
-     $null = Get-GPO -All -ErrorAction Stop
-   ad_forest_wait_sysvol_path: true
-   ad_forest_admin_groups: [Domain Admins, Group Policy Creator Owners]
-   ```
+windows PR #23, merged as `7584116`. Where it differs from the plan:
 
-   `seed.yml`, the fixture and the scenarios' own prepare/converge/verify stay as they are. wsfc
-   and iis never promote.
-4. `tests/domain_lab/requirements.yml` can stay for local runs. In CI the action installs
-   `git_cgallagher.molecule`, which brings `ansible.windows` and `microsoft.ad`.
-5. The domain-lab workflow:
-   - The KVM/QEMU, lab-dir, install and symlink steps become one setup-molecule step with
-     `collection: git_cgallagher.windows`, `kvm: 'true'` and `lab-dir: /mnt/gpo-lab`.
-   - The screen capture becomes `vm-screendump` with `platforms: ${{ matrix.vm }}` (the file is now
-     `<vm>-screen.ppm`).
-   - The artifact upload keeps `gpo-repo*/`, and `GPO_LAB_DIR` becomes `MOLECULE_LAB_DIR`.
-   - It stays a non-required check.
-6. Docs: AGENTS.md, `tests/domain_lab/README.md` and CHANGELOG. Check the version gate as for isc:
-   a `galaxy.yml` change counts as shipped.
+- **It landed after the IIS modules PR** (PR 22 there, 0.4.0), merged in rather than rebased because
+  the PR was already up. That PR had moved the box pin into a `lab_vm` group var, which
+  `tests/domain_lab/create.yml` merged under each platform; `lab_vm` became
+  `driver.options.platform_defaults`, so the IIS scenario's `iis01` inherits the box like `dc01`.
+- **No release.** `.config` and `tests` were already in `build_ignore`, and that repo's version gate
+  counts `README.md` and `CHANGELOG.md` as shipped, so the change has no CHANGELOG entry, like its
+  CI-only PR #21.
+- **The KVM/QEMU step's 10-minute guard** (a stuck apt hung one run for two hours) became a 15-minute
+  `timeout-minutes` on the setup-molecule step. A composite action's own steps can't set one: the
+  runner's `action_yaml.json` has no such key.
+- **The lint job didn't change**, for the reason given for isc.
 
-After that, wsfc can grow from one node to a real cluster: two or three `windows_vm` platforms on a
-shared `lab_networks` segment (see the README's cluster notes).
+The rest went as planned:
 
-## ansible-collection-orchestration (candidate)
+- `.config/molecule/config.yml`: `driver: molecule-git-cgallagher` with `kind: windows_vm` and the
+  box in `platform_defaults`, `platforms: [{name: dc01}]`, no `provisioner.playbooks`, and `lab_dir`
+  from `MOLECULE_LAB_DIR`, so the GPO exports sit next to the VM disk.
+- `tests/domain_lab/create.yml` and `destroy.yml` are gone. `promote.yml` promotes with `ad_forest`
+  (GPMC and the GroupPolicy module, a SYSVOL-ready test, `ad_forest_wait_sysvol_path`, Domain Admins
+  plus Group Policy Creator Owners). wsfc and iis never promote.
+- `domain-lab.yml`: one setup-molecule step (`kvm: 'true'`, `lab-dir: /mnt/gpo-lab`), the screen
+  capture is `vm-screendump` with `platforms: ${{ matrix.vm }}`, and it is still not a required
+  check.
 
-Its scenario would be `driver.options.platform_defaults: {image: docker.io/library/python:3.13-slim}`
-plus four named platforms: no YAML anchor, and no `pre_build_image` or `command`, which are the
-defaults. Its Molecule CI job would be one setup-molecule step. Not planned: that's a separate
-decision for that repo.
+Verified on the PR: every check passed, including all four `domain-lab` jobs (windows run
+[41320266419](https://github.com/git-cgallagher/ansible-collection-windows/actions/runs/41320266419)): gpo_backup and gpo_import against a DC that `ad_forest` promoted, wsfc's one-node
+workgroup cluster, and the IIS modules' targets on a plain server.
+
+Next there: wsfc can grow from one node to a real cluster, two or three `windows_vm` platforms on a
+shared `lab_networks` segment (windows issue #19). Its shared disks need SCSI-3 persistent
+reservations, which this driver doesn't offer yet (AGENTS.md TODO).
 
 ## Order
 
 1. ✅ Publish this repo and tag `v0.1.0` (2026-10-31).
 2. ✅ v0.2.0 (`platform_defaults`, `constraints`), then isc PR #18, released as 2.0.1 (2026-10-31).
-3. windows, after its PRs 20 and 22. Its domain-lab workflow runs on the PR (path filter).
-4. Galaxy and PyPI publishing stay optional: consumers pin the action's SHA, which installs the
+3. ✅ orchestration PR #15 (2026-11-01).
+4. ✅ windows PR #23, after its PRs 20 (wsfc) and 22 (IIS modules) (2026-11-01).
+5. Galaxy and PyPI publishing stay optional: consumers pin the action's SHA, which installs the
    driver and the collection from that same commit.
