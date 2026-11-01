@@ -1,7 +1,7 @@
 # Moving the git_cgallagher repos onto molecule-git-cgallagher
 
-Status 2026-11-01: **done.** isc, orchestration and windows all run their Molecule scenarios on
-the driver, and none of them has its own create/destroy any more. Tracking:
+Status 2026-11-01: **done.** isc, orchestration, windows and aws all run their Molecule scenarios
+on the driver, and none of them has its own create/destroy any more. Tracking:
 [issue #3](https://github.com/git-cgallagher/ansible-collection-molecule/issues/3).
 
 ## Which repos
@@ -11,6 +11,7 @@ the driver, and none of them has its own create/destroy any more. Tracking:
 | `ansible-collection-isc` | 8 scenarios in `roles/<role>/molecule/`: 7 on molecule-plugins' docker driver, `kea_dhcp_msdns/windows` on the default driver with its own 290-line create/destroy | **Done**: [isc PR #18](https://github.com/git-cgallagher/ansible-collection-isc/pull/18), 2.0.1, merged 2026-10-31 |
 | `ansible-collection-orchestration` | one scenario, `extensions/molecule/default`: four `python:3.13-slim` containers on molecule-plugins' docker driver | **Done**: [orchestration PR #15](https://github.com/git-cgallagher/ansible-collection-orchestration/pull/15), merged 2026-11-01 (test-only, no release) |
 | `ansible-collection-windows` (renamed from `ansible-collection-gpo` 2026-10-31) | one scenario per role (`roles/<role>/molecule/default`) plus `tests/integration/molecule/iis`: default driver, shared create/destroy in `tests/domain_lab/` wired up by `.config/molecule/config.yml` | **Done**: [windows PR #23](https://github.com/git-cgallagher/ansible-collection-windows/pull/23), merged 2026-11-01 (test-only, no release) |
+| `ansible-collection-aws` | none: its `module_ssm_parameter` integration target runs the module on the controller, through the local connection | **Done**: [aws PR #4](https://github.com/git-cgallagher/ansible-collection-aws/pull/4), its first scenario, merged 2026-11-01 (test-only, no release) |
 | `ansible-collection-stork`, `ansible-role-kea-dhcp` | deleted 2026-10-31 | No |
 
 ## What got smaller
@@ -102,11 +103,40 @@ Next there: wsfc can grow from one node to a real cluster, two or three `windows
 shared `lab_networks` segment (windows issue #19). Its shared disks need SCSI-3 persistent
 reservations, which this driver doesn't offer yet (AGENTS.md TODO).
 
+## ansible-collection-aws (done)
+
+Chris asked for it on 2026-11-01. aws had no Molecule: its `module_ssm_parameter` integration
+target runs the module on the controller, through the local connection. aws PR #4, merged as
+`465f104`, adds `tests/integration/molecule/ssm_parameter`:
+
+- **The module on a real remote host.** `node1` (`python:3.13-slim`, over the docker connection)
+  runs it against `moto` (`motoserver/moto:5.2.5`, standing in for SSM and STS), through the same
+  cross-account role chain as the integration target. boto3 is installed on `node1` only and the
+  controller has none, so the module, module_utils included, can only have run there.
+- **Two platforms on one network, from `platform_defaults`:** `docker_networks` creates
+  `aws-molecule` and `networks` joins both containers to it, so `node1` reaches `moto` by name.
+- **`override_command: false` for moto.** The image's entrypoint is the server, and the kind's
+  default command (`sleep infinity`) would reach it as arguments.
+- **CI runs it in the ansible-runtime image, not through setup-molecule.** The job calls
+  `.github/ci/runtime.sh` (adapted from isc's) with the `0.2.1-ci` image pinned by digest, which
+  already has the driver and `git_cgallagher.molecule`, so the job installs nothing.
+- **No base config, so no release.** aws's version gate counts `.config/` as shipped content, so the
+  scenario keeps its driver settings in its own `molecule.yml`, and the wrapper links the checkout in
+  as `git_cgallagher.aws` under `collections/`, which is gitignored and build-ignored. The version
+  stayed 0.3.0.
+
+Verified: a full local `molecule test` through the same wrapper and image (create, prepare,
+converge, idempotence, verify, destroy, nothing left running), all 19 checks on the PR, and every
+stable check on main, including the new `molecule ssm_parameter` (aws run
+[41351804358](https://github.com/git-cgallagher/ansible-collection-aws/actions/runs/41351804358)).
+It isn't a required check there yet (aws AGENTS.md TODO).
+
 ## Order
 
 1. ✅ Publish this repo and tag `v0.1.0` (2026-10-31).
 2. ✅ v0.2.0 (`platform_defaults`, `constraints`), then isc PR #18, released as 2.0.1 (2026-10-31).
 3. ✅ orchestration PR #15 (2026-11-01).
 4. ✅ windows PR #23, after its PRs 20 (wsfc) and 22 (IIS modules) (2026-11-01).
-5. Galaxy and PyPI publishing stay optional: consumers pin the action's SHA, which installs the
+5. ✅ aws PR #4, its first scenario (2026-11-01).
+6. Galaxy and PyPI publishing stay optional: consumers pin the action's SHA, which installs the
    driver and the collection from that same commit.
