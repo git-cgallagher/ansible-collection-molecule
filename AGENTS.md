@@ -8,7 +8,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, role `ad_forest` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
 | `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config | not shipped |
-| `docs/MIGRATION.md` | the per-repo plan: isc done (2.0.1), windows (formerly gpo) next | — |
+| `docs/MIGRATION.md` | the migration record: isc (2.0.1), orchestration and windows (formerly gpo), all on the driver | — |
 
 ## Commands
 
@@ -135,7 +135,7 @@ Which commit gets the tag:
   (and `molecule list`) from the platform entries as written, before the driver merges anything, so
   defaults for those would reach the kinds but not the inventory. `create.yml` refuses them.
 
-## Verified (2026-10-31)
+## Verified (2026-10-31 to 2026-11-01)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -175,8 +175,14 @@ Which commit gets the tag:
   `windows-dc` run on the PR branch also passed (isc run 41262871072): a Windows Server 2022 VM
   booted through `windows_vm` and was promoted by `ad_forest`, and Kea's GSS-TSIG updates were read
   back from Microsoft DNS.
-- **Not verified yet:** the windows repo's scenarios on the driver (its migration, after its PRs 20
-  and 22), and lab networks with more than two VMs or more than one network per VM.
+- orchestration on the driver (orchestration PR #15, merged 2026-11-01 as `6334663`): all 16 checks
+  pass, devel included, with its four docker platforms from `platform_defaults`.
+- windows on the driver (windows PR #23, merged 2026-11-01 as `7584116`): every check passes,
+  including all four `domain-lab` jobs (windows run [41320266419](https://github.com/git-cgallagher/ansible-collection-windows/actions/runs/41320266419)). Each boots its VM through
+  `windows_vm` from the base config's `platform_defaults`: gpo_backup and gpo_import on a DC promoted
+  by `ad_forest` (with GPMC, a SYSVOL-ready test and the SYSVOL path wait), wsfc's one-node
+  workgroup cluster, and the IIS modules' targets on `iis01`, a scenario that names only its VM.
+- **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
 
 ## TODO
 
@@ -185,4 +191,6 @@ Which commit gets the tag:
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
-- The windows (formerly gpo) migration, after that repo's PRs 20 and 22: `docs/MIGRATION.md`, issue #3.
+- setup-molecule: put a `timeout` on its `apt-get` calls. A consumer can't time-limit a composite
+  action's steps, only the whole `uses:` step (a stuck apt once hung a windows domain-lab job for two
+  hours; that repo now limits its setup-molecule step to 15 minutes).
