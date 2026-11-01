@@ -1,12 +1,14 @@
 ---
 # The create/destroy playbooks against two docker platforms: no KVM needed,
 # so it runs on any Docker host (including a Mac) and on every PR.
+driver:
+  options:
+    # Both platforms start from these keys; smoke2 overrides command.
+    platform_defaults:
+      kind: docker
+      image: python:3.13-slim
 platforms:
   - name: molecule-smoke1
-    kind: docker
-    image: python:3.13-slim
   - name: molecule-smoke2
-    kind: docker
-    image: python:3.13-slim
     hostname: smoke2.example.test
     command: [sleep, '3600']

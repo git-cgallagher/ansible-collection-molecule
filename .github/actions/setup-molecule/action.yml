@@ -22,6 +22,12 @@ inputs:
     description: The ansible-core pip spec.
     required: false
     default: ansible-core
+  constraints:
+    description: >-
+      A pip constraints file in the checkout (pip install -c), applied to every
+      package this action installs, so CI runs the versions the repo pins. Empty for none.
+    required: false
+    default: ''
   python-version:
     description: Python for the controller.
     required: false
@@ -72,6 +78,7 @@ runs:
       shell: bash
       env:
         CORE: ${{ inputs.ansible-core }}
+        CONSTRAINTS: ${{ inputs.constraints }}
         EXTRA: ${{ inputs.pip }}
         KVM: ${{ inputs.kvm }}
         REQUIREMENTS: ${{ inputs.requirements }}
@@ -79,7 +86,9 @@ runs:
         root=$(cd "$GITHUB_ACTION_PATH/../../.." && pwd)
         driver=$root; [ "$KVM" = true ] && driver="$root[windows]"
         read -ra extra <<< "$EXTRA"
-        pip install "$CORE" molecule "$driver" "${extra[@]}"
+        constraints=()
+        if [ -n "$CONSTRAINTS" ]; then constraints=(-c "$CONSTRAINTS"); fi
+        pip install "${constraints[@]}" "$CORE" molecule "$driver" "${extra[@]}"
         molecule --version
         ansible-galaxy collection install --force "$root"
         while IFS= read -r req; do

@@ -31,16 +31,19 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
 - Molecule calls the driver's `get_playbook(step)`: `molecule_git_cgallagher/playbooks/create.yml` is one
   `import_playbook: git_cgallagher.molecule.create`. If the collection isn't installed that import
   fails loudly ("Could not find playbook"), which is the guard.
-- `playbooks/create.yml` loops over `molecule_yml.platforms` twice, including the role named after
+- `playbooks/create.yml` loops over `molecule_platforms` twice, including the role named after
   each platform's `kind` (default `docker`): entry point `create` for every platform, then `ready` for
-  every platform. Destroy loops once, in reverse, with `destroy`.
-- **Kind contract.** A kind role reads `molecule_platform` and `molecule_lab_dir`. Its `create`
+  every platform. Destroy loops once, in reverse, with `destroy`. `molecule_platforms` is each
+  `molecule_yml.platforms` entry over the driver's `platform_defaults` option (`driver.options`),
+  worked out in `playbooks/vars/driver.yml`, which both playbooks load.
+- **Kind contract.** A kind role reads `molecule_platform` and `molecule_lab_dir` (and
+  `molecule_platforms`, if it needs the other platforms). Its `create`
   asserts the platform's keys against its own list (`vars/main.yml`; unknown keys fail), starts the
   platform without waiting, and appends instance entries (`instance`, `address`, `connection`, and
   `port`/`user`/`password` when needed) to `<kind>_instances`; its `ready` waits until the platform is
   usable. The driver subclasses Molecule's delegated driver, which maps those entries to
   `ansible_host`/`ansible_port`/`ansible_connection`/... in the inventory. New kind = new role + its
-  name in `molecule_kinds` in both playbooks + a self-test.
+  name in `molecule_kinds` in `playbooks/vars/driver.yml` + a self-test.
 - **windows_vm networking.** NIC 0 is QEMU user networking (WinRM + `forwards` on 127.0.0.1, the same
   10.0.2.15 on every VM). Each `lab_networks` entry adds a virtio NIC on a QEMU socket netdev in UDP
   mode, talking to `files/lab_hub.py` on 127.0.0.1, which repeats every frame to the network's other
@@ -84,8 +87,9 @@ PyPI publishing aren't set up yet (TODO below).
   (its `driver.json` allows only `molecule-git-cgallagher`).
 - **Our variables share Molecule's `molecule_` prefix.** Molecule itself injects `molecule_file`,
   `molecule_yml`, `molecule_ephemeral_directory`, `molecule_scenario_directory`,
-  `molecule_instance_config` and `molecule_no_log`; ours are `molecule_platform`, `molecule_kinds`,
-  `molecule_lab_dir` and `molecule_instance_vars`. Check a new name against
+  `molecule_instance_config` and `molecule_no_log`; ours are `molecule_platform`,
+  `molecule_platforms`, `molecule_platform_defaults`, `molecule_kinds`, `molecule_lab_dir` and
+  `molecule_instance_vars`. Check a new name against
   `molecule/provisioner/ansible.py` before using it, and never reuse one of Molecule's.
 - **A create/destroy Molecule can't find is skipped, not an error.** `create`, `destroy`, `prepare`,
   `verify`, `cleanup`, `side_effect` are optional steps: with the `default` driver and no
@@ -118,6 +122,9 @@ PyPI publishing aren't set up yet (TODO below).
   `.molecule-collections` first in `ANSIBLE_COLLECTIONS_PATH`, or they test a stale copy.
 - `ansible-galaxy collection install <dir>` honours `build_ignore`; keep the Python package and
   build output in it.
+- **`platform_defaults` can't hold `name`, `groups` or `children`.** Molecule builds the inventory
+  (and `molecule list`) from the platform entries as written, before the driver merges anything, so
+  defaults for those would reach the kinds but not the inventory. `create.yml` refuses them.
 
 ## Verified (2026-10-31)
 
@@ -147,6 +154,12 @@ PyPI publishing aren't set up yet (TODO below).
 - Released as `v0.1.0` (annotated tag on merge commit `d9421b5`): the README's pip and
   ansible-galaxy install lines both work against the tag (the driver registers with Molecule, the
   `windows` extra brings `pypsrp`, the collection installs with its three roles).
+- 0.2.0, on the Mac (same versions): `docker_smoke` (both platforms from `platform_defaults`; the
+  verify checks that smoke1 runs the default image) and `docker_full` pass; `windows_cluster`, its box
+  now from `platform_defaults`, passes its key, port and NIC checks and stops at `/dev/kvm`.
+  `platform_defaults` with `groups`, two VMs inheriting one `winrm_port`, and a docker platform
+  inheriting `box_url` each fail with a message. The merge expression gives the same platforms on
+  ansible-core 2.18.19 and 2.21.5, and the built tarball ships `playbooks/vars/driver.yml`.
 - **Not verified yet:** the isc and windows repos' Windows scenarios on the driver (their
   migrations), and lab networks with more than two VMs or more than one network per VM.
 

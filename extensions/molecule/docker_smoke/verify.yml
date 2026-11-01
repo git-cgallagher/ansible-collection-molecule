@@ -26,3 +26,17 @@
     - name: Require the platform's hostname
       ansible.builtin.assert:
         that: smoke_hostname.stdout == 'smoke2.example.test'
+
+- name: Check platform_defaults reached a platform that sets no keys of its own
+  hosts: molecule-smoke1
+  gather_facts: false
+  tasks:
+    - name: Read the Python version
+      ansible.builtin.command: python3 --version
+      register: smoke_python
+      changed_when: false
+
+    - name: Require the default image (python:3.13-slim)
+      ansible.builtin.assert:
+        that: smoke_python.stdout is match('Python 3\\.13\\.')
+        fail_msg: "{{ smoke_python.stdout }}"

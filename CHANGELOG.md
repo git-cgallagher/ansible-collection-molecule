@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0 (2026-10-31)
+
+What moving isc and windows onto the driver needs.
+
+- **Driver option `platform_defaults`:** keys every platform entry starts from; the entry's own keys
+  win. A base config's box pin then stays in one place when a scenario names its own VMs (Molecule
+  replaces a base config's `platforms` list rather than merging it). It can't set `name`, `groups`
+  or `children`.
+- Kinds get the merged platforms: `molecule_platform` is one of them, and the new
+  `molecule_platforms` is all of them (`windows_vm`'s host-port and lab-network checks read it
+  instead of `molecule_yml.platforms`).
+- **setup-molecule `constraints` input:** a pip constraints file applied to everything the action
+  installs, for repos that pin their CI tools (isc's `.github/ci/requirements.txt`).
+- The create and destroy playbooks' vars moved to `playbooks/vars/driver.yml`.
+- Self-tests: `docker_smoke` takes its image from `platform_defaults`, `windows_cluster` shares its
+  box through them instead of a YAML anchor, and CI's Molecule jobs install under
+  `.github/ci/constraints.txt`.
+
 ## 0.1.0 (2026-10-31)
 
 First release: the molecule-git-cgallagher driver (pip), the git_cgallagher.molecule collection and the

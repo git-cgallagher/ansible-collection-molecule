@@ -84,4 +84,5 @@ jobs:
         with:
           collection: git_cgallagher.molecule
           requirements: extensions/molecule/requirements.yml
+          constraints: .github/ci/constraints.txt
       - run: molecule test -s ${{ matrix.scenario }}

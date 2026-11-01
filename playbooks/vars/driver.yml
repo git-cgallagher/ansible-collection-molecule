@@ -1,0 +1,20 @@
+---
+# Play vars for create.yml and destroy.yml.
+molecule_kinds: [docker, windows_vm]
+
+# Box cache and VM disks: $MOLECULE_LAB_DIR, else ~/.cache/molecule-lab
+# (CI points it at the runner's /mnt disk; a base config can set it in
+# provisioner.env).
+molecule_lab_dir: >-
+  {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
+     | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}
+
+# driver.options.platform_defaults: keys every platform entry starts from (a
+# base config's box pin, say), so a scenario that replaces the platforms list
+# only names its own. The entry's own keys win.
+molecule_platform_defaults: "{{ molecule_yml.driver.options.platform_defaults | default({}) }}"
+
+# Every platform as the kinds see it: platform_defaults, then the entry.
+molecule_platforms: >-
+  {{ [molecule_platform_defaults] | product(molecule_yml.platforms)
+     | map('ansible.builtin.combine') | list }}

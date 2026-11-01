@@ -47,6 +47,11 @@
         "managed": {
           "title": "Managed",
           "type": "boolean"
+        },
+        "platform_defaults": {
+          "description": "Keys every platform entry starts from (the entry's own keys win), for example a base config's box pin. Not name, groups or children.",
+          "title": "Platform Defaults",
+          "type": "object"
         }
       },
       "title": "MoleculeDriverOptionsModel",
