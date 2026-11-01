@@ -14,7 +14,10 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e '.[windows]' ansible-core ansible-lint yamllint
+# CI's versions: the ansible-runtime image's constraints (RUNTIME_IMAGE in .github/workflows/ci.yml)
+export RUNTIME_IMAGE=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
+mkdir -p .cache && docker run --rm "$RUNTIME_IMAGE" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
+pip install -c .cache/constraints.txt -e '.[windows]' ansible-core ansible-lint yamllint
 ansible-galaxy collection install -r extensions/molecule/requirements.yml
 mkdir -p .molecule-collections/ansible_collections/git_cgallagher && ln -sfn ../../.. .molecule-collections/ansible_collections/git_cgallagher/molecule
 yamllint . && ansible-lint               # production profile, must stay at 0
