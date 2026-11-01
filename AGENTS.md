@@ -87,7 +87,7 @@ Which commit gets the tag:
   deletion and force-push blocked, PR required with 0 approvals, and these checks required (GitHub
   Actions, integration `15368`): `lint`, `sanity (stable-2.18)`, `sanity (stable-2.19)`,
   `sanity (stable-2.20)`, `sanity (stable-2.21)`, `molecule docker_smoke`, `molecule docker_full`.
-  Not required, on purpose: `sanity (devel, venv)` (an upstream canary) and the two `windows-lab`
+  Not required, on purpose: the two `windows-lab`
   jobs (path-filtered, and they depend on a third-party box download). Still merge only when those
   are green too: merges are by hand, and repo auto-merge is off.
 - Secret scanning + push protection, Dependabot alerts + security updates, private vulnerability
@@ -126,9 +126,9 @@ Which commit gets the tag:
   `$_` matched the runner's `_` variable, so `$_.MacAddress` reached Windows as
   `/opt/hostedtoolcache/.../bin/molecule.MacAddress` (first `windows_cluster` CI run, PR #1). Every
   `command` task in the roles sets `expand_argument_vars: false`; keep it on new ones.
-- **ansible-test's devel container can't start on GitHub runners** (it fails remounting
-  `/sys/fs/cgroup`, 2026-10-31, in isc too), so `sanity (devel, venv)` runs `ansible-test --venv`
-  on a plain runner, as git_cgallagher.orchestration does.
+- **ansible-core `devel` isn't tested** (owner decision, 2026-11-01; the `sanity (devel, venv)`
+  canary was removed). If it ever comes back: devel's test container failed to start on GitHub
+  runners (remounting `/sys/fs/cgroup`, 2026-10-31), so it needs `ansible-test --venv`.
 - **Windows re-arms `wuauserv` after a feature install and reboot** (the servicing stack starts it
   and resets its start mode). `quiet_vm` at the start of `ad_forest` alone made `windows_dc`'s
   idempotence step fail (PR #9's first run), so the role includes it again at the end.
