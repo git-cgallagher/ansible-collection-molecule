@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- CI: the `sanity (devel, venv)` canary is gone; ansible-core `devel` is no longer tested (owner
+  decision). Sanity covers `stable-2.18`…`stable-2.21`.
+
 ## 0.3.1 (2026-11-01)
 
 - **`quiet_vm` converges with Defender Tamper Protection on.** `Set-MpPreference
