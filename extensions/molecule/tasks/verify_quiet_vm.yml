@@ -1,0 +1,22 @@
+---
+# Shared by the windows_dc and windows_cluster verifies: the state quiet_vm
+# claims, read back without it.
+- name: Read the Windows Update service
+  ansible.windows.win_service_info:
+    name: wuauserv
+  register: quiet_wuauserv
+
+- name: Read Defender's real-time scanning preference
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      [bool](Get-MpPreference).DisableRealtimeMonitoring
+  register: quiet_defender
+
+- name: Require Windows Update stopped and disabled, and real-time scanning off
+  ansible.builtin.assert:
+    that:
+      - quiet_wuauserv.services[0].state == 'stopped'
+      - quiet_wuauserv.services[0].start_mode == 'disabled'
+      - quiet_defender.output[0]
+    fail_msg: "{{ quiet_wuauserv.services[0] | to_json }} / defender {{ quiet_defender.output }}"

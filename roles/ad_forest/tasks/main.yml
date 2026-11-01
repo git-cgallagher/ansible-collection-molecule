@@ -9,17 +9,8 @@
 
 - name: Quiet the VM (Windows Update off, Defender real-time scanning off)
   when: ad_forest_quiet | bool
-  ansible.windows.win_powershell:
-    script: |
-      $Ansible.Changed = $false
-      Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
-      Set-Service -Name wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
-      try {
-          Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
-      }
-      catch {
-          $Ansible.Result = "Defender not changed: $($_.Exception.Message)"
-      }
+  ansible.builtin.include_role:
+    name: git_cgallagher.molecule.quiet_vm
 
 - name: Name the host
   when: ad_forest_hostname | length > 0
@@ -34,10 +25,13 @@
         reboot_timeout: 900
       when: ad_forest_rename.reboot_required
 
+# Both loopbacks: promotion sets ::1 as the IPv6 DNS server itself, and
+# win_dns_client converges each address family it finds, so listing only
+# 127.0.0.1 would strip ::1 again on the next run and report a change.
 - name: Point DNS at itself (the DC will host the domain's DNS)
   ansible.windows.win_dns_client:
     adapter_names: '*'
-    dns_servers: [127.0.0.1]
+    dns_servers: [127.0.0.1, '::1']
 
 - name: Install the Windows features
   ansible.windows.win_feature:
@@ -68,52 +62,60 @@
       } catch { exit 1 }
   when: ad_forest_result.reboot_required | default(false)
 
+# The share is served at once, but \\<domain>\SYSVOL is a DFS referral and
+# resolves only once the DFS namespace and DNS have caught up with the
+# promotion, which lags the reboot. win_stat runs under the connection's
+# token, so it resolves the UNC path the way GPMC will.
 - name: Wait until the domain SYSVOL path resolves
   when: ad_forest_wait_sysvol_path | bool
-  ansible.windows.win_powershell:
-    script: |
-      param([string]$Domain)
-      $Ansible.Changed = $false
-      if (-not (Test-Path -LiteralPath "\\$Domain\SYSVOL\$Domain\Policies")) {
-          throw "\\$Domain\SYSVOL\$Domain\Policies doesn't resolve yet"
-      }
-    parameters:
-      Domain: "{{ ad_forest_domain }}"
+  ansible.windows.win_stat:
+    path: '\\{{ ad_forest_domain }}\SYSVOL\{{ ad_forest_domain }}\Policies'
   register: ad_forest_sysvol_path
-  until: ad_forest_sysvol_path is succeeded
+  until: ad_forest_sysvol_path is succeeded and ad_forest_sysvol_path.stat.exists
   retries: 60
   delay: 10
 
+# The account is ansible_user without a DOMAIN\ prefix (the box's local
+# account became a domain account on promotion, so the sAMAccountName is the
+# same). An inventory that leaves ansible_user unset (a Kerberos ticket, say)
+# falls back to the name the connection runs as.
+- name: Read the connection account's name when the inventory doesn't set it
+  when: ansible_user is not defined
+  ansible.windows.setup:
+    gather_subset: ['!all', '!min', 'user']
+
+- name: Work out the connection account's sAMAccountName
+  ansible.builtin.set_fact:
+    ad_forest_account: >-
+      {{ (ansible_user if ansible_user is defined else ansible_facts.user_id)
+         | regex_replace('^.*\\', '') }}
+
 - name: Add the connection account to the admin groups
-  ansible.windows.win_powershell:
-    script: |
-      param([string[]]$Groups)
-      $Ansible.Changed = $false
-      foreach ($group in $Groups) {
-          $members = @(Get-ADGroupMember -Identity $group | ForEach-Object { $_.SamAccountName })
-          if ($members -notcontains $env:USERNAME) {
-              Add-ADGroupMember -Identity $group -Members $env:USERNAME
-              $Ansible.Changed = $true
-          }
-      }
-    parameters:
-      Groups: "{{ ad_forest_admin_groups }}"
+  microsoft.ad.group:
+    identity: "{{ item }}"
+    members:
+      add: ["{{ ad_forest_account }}"]
+  loop: "{{ ad_forest_admin_groups }}"
   register: ad_forest_groups
 
 # The PSRP session's logon token predates the membership change.
 - name: Reconnect so the new group membership is in the logon token
   ansible.builtin.meta: reset_connection
 
+# No module sets the clock (win_timezone is the zone, not the time). The
+# script measures the skew first and reports changed only when it corrects
+# it; SupportsShouldProcess lets check mode predict instead of skipping.
 - name: Set the DC's clock from the controller
   when: ad_forest_sync_clock | bool
   ansible.windows.win_powershell:
     parameters:
       Epoch: "{{ now(utc=true).timestamp() | int }}"
     script: |
+      [CmdletBinding(SupportsShouldProcess)]
       param([long]$Epoch)
       $target = [DateTimeOffset]::FromUnixTimeSeconds($Epoch).UtcDateTime
       $skew = [math]::Abs(([DateTime]::UtcNow - $target).TotalSeconds)
       $Ansible.Result = [math]::Round($skew)
       $Ansible.Changed = $skew -gt 30
-      if ($Ansible.Changed) { Set-Date -Date $target.ToLocalTime() | Out-Null }
+      if ($Ansible.Changed -and -not $Ansible.CheckMode) { Set-Date -Date $target.ToLocalTime() | Out-Null }
   register: ad_forest_clock

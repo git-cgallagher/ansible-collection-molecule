@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "molecule-git-cgallagher"
-version = "0.2.1"
+version = "0.3.0"
 description = "Molecule driver for git_cgallagher.molecule: Docker containers and QEMU/KVM Windows VMs from platform definitions"
 readme = "README.md"
 license = "MIT"

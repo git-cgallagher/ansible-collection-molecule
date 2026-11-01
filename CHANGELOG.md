@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 (2026-11-01)
+
+The `ad_forest` items of the 2026-11-01 `win_powershell` review
+([issue #8](https://github.com/git-cgallagher/ansible-collection-molecule/issues/8)): modules where
+one exists, and the lab-bootstrap block the four Windows labs copied now lives in one role.
+
+- **New role `quiet_vm`:** stops and disables Windows Update (`ansible.windows.win_service`) and
+  turns off Defender real-time scanning (a `win_powershell` that reads the preference first, so it
+  reports `changed` only when it wrote and predicts in check mode; a VM without Defender is a no-op).
+  Toggles `quiet_vm_windows_update` and `quiet_vm_defender`. `ad_forest` uses it (`ad_forest_quiet`),
+  and the workgroup labs in ansible-collection-windows (wsfc, iis) can include it from prepare.
+- **`ad_forest`:** the SYSVOL path wait is `ansible.windows.win_stat` (`until` the path exists); the
+  admin-group membership is `microsoft.ad.group` (`members.add`), one task per group, with the
+  account taken from `ansible_user` without a `DOMAIN\` prefix, or from the `user` facts when the
+  inventory doesn't set `ansible_user`. The `Set-Date` clock sync stays a `win_powershell` (no
+  module) and now predicts in check mode. A second run reports no changes.
+- Self-tests: `windows_dc` runs `ad_forest` from converge, so Molecule's idempotence step is the
+  second-converge proof, and its verify reads back what `quiet_vm` set; `windows_cluster` runs
+  `quiet_vm` on both workgroup nodes, the way the windows labs will.
+
 ## 0.2.1 (2026-11-01)
 
 - **setup-molecule time-limits apt.** With `kvm: 'true'`, `apt-get update` and the QEMU

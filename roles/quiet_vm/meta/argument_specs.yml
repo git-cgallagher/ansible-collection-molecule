@@ -1,0 +1,21 @@
+---
+argument_specs:
+  main:
+    short_description: Quiet a throwaway Windows test VM
+    description:
+      - For lab VMs only. Stops and disables the Windows Update service and turns off Defender
+        real-time scanning, so a test run isn't slowed or interrupted by either. Each task reports
+        C(changed) only when it changed the VM, and both predict in check mode.
+      - Used by C(git_cgallagher.molecule.ad_forest) (C(ad_forest_quiet)) and meant for the prepare
+        playbooks of workgroup labs that don't promote a DC.
+    options:
+      quiet_vm_windows_update:
+        type: bool
+        default: true
+        description: Stop the C(wuauserv) service and set its start mode to C(disabled).
+      quiet_vm_defender:
+        type: bool
+        default: true
+        description:
+          - Set Defender's C(DisableRealtimeMonitoring) preference. A VM without Defender (no
+            C(Get-MpPreference)) is left alone and reported in the task's C(output).

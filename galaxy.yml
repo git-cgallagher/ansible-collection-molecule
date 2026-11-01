@@ -1,13 +1,14 @@
 namespace: git_cgallagher
 name: molecule
-version: 0.2.1
+version: 0.3.0
 readme: README.md
 authors:
   - Chris Gallagher (@git-cgallagher)
 description: >-
   Shared Molecule test-lab plumbing for the git_cgallagher collections: a
   delegated-driver create/destroy for Windows Server VMs under QEMU/KVM and
-  plain Docker containers, and a role that promotes a test VM to a new AD forest.
+  plain Docker containers, a role that promotes a test VM to a new AD forest and
+  one that quiets a test VM (Windows Update and Defender real-time scanning off).
 license:
   - MIT
 tags:
@@ -17,8 +18,8 @@ tags:
   - qemu
   - activedirectory
 dependencies:
-  ansible.windows: '>=2.0.0'      # ad_forest, and the psrp connection's Windows modules
-  microsoft.ad: '>=1.6.0'         # ad_forest: microsoft.ad.domain
+  ansible.windows: '>=2.0.0'      # ad_forest, quiet_vm, and the psrp connection's Windows modules
+  microsoft.ad: '>=1.6.0'         # ad_forest: microsoft.ad.domain and microsoft.ad.group
   community.docker: '>=3.0.0'     # the docker connection to container platforms
 repository: https://github.com/git-cgallagher/ansible-collection-molecule
 documentation: https://github.com/git-cgallagher/ansible-collection-molecule#readme
@@ -29,6 +30,7 @@ build_ignore:
   - collections
   - extensions/molecule
   - .molecule-collections
+  - .venv
   - tests
   - '*.tar.gz'
   - .ansible-lint

@@ -16,11 +16,13 @@ on:
     paths:
       - roles/windows_vm/**
       - roles/ad_forest/**
+      - roles/quiet_vm/**
       - roles/docker/**
       - playbooks/**
       - molecule_git_cgallagher/**
       - extensions/molecule/windows_dc/**
       - extensions/molecule/windows_cluster/**
+      - extensions/molecule/tasks/**
       - .github/actions/**
       - .github/workflows/windows-lab.yml
   # Weekly: catches box, collection and runner-image changes.

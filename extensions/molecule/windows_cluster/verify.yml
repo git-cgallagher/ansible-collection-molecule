@@ -36,3 +36,6 @@
         fail_msg: "{{ lab_result | to_json }}"
       vars:
         lab_result: "{{ lab_check.output[0] }}"
+
+    - name: Check what quiet_vm did
+      ansible.builtin.import_tasks: ../tasks/verify_quiet_vm.yml

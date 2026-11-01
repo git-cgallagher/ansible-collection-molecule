@@ -5,7 +5,7 @@
 collections:
   - name: community.docker   # the docker connection
     version: '>=3.0.0'
-  - name: ansible.windows    # windows_dc: win_ping, win_powershell, ad_forest
+  - name: ansible.windows    # windows_dc, windows_cluster: win_ping, ad_forest, quiet_vm
     version: '>=2.0.0'
-  - name: microsoft.ad       # windows_dc: ad_forest's microsoft.ad.domain
+  - name: microsoft.ad       # windows_dc: ad_forest's microsoft.ad.domain and .group
     version: '>=1.6.0'
