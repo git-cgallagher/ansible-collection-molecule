@@ -49,6 +49,10 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
+    # apt-get gets its own time limits because a caller can only limit this
+    # whole action (a composite action's steps can't set timeout-minutes): a
+    # stuck apt once hung a consumer's job for two hours. Each call normally
+    # takes well under a minute.
     - name: Enable KVM and install QEMU
       if: inputs.kvm == 'true'
       shell: bash
@@ -57,8 +61,19 @@ runs:
           | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+        # apt_get <seconds> <apt-get args>: fail instead of hanging past the limit.
+        apt_get() {
+          local limit=$1
+          shift
+          sudo timeout --kill-after=30 "$limit" apt-get "$@" && return 0
+          local rc=$?
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "::error::apt-get $1 didn't finish in $((limit / 60)) minutes (a stuck mirror or dpkg lock?); re-run the job."
+          fi
+          return "$rc"
+        }
+        apt_get 180 update
+        apt_get 480 install -y --no-install-recommends qemu-system-x86 qemu-utils
         ls -l /dev/kvm
 
     - name: Prepare the lab directory

@@ -182,6 +182,10 @@ Which commit gets the tag:
   `windows_vm` from the base config's `platform_defaults`: gpo_backup and gpo_import on a DC promoted
   by `ad_forest` (with GPMC, a SYSVOL-ready test and the SYSVOL path wait), wsfc's one-node
   workgroup cluster, and the IIS modules' targets on `iis01`, a scenario that names only its VM.
+- 0.2.1's apt limits, in an `ubuntu:24.04` container with the helper exactly as the action has it,
+  under `bash -eo pipefail` (as GitHub runs a step) and a fake `apt-get`: a hang stops at the limit
+  (rc 124) and one that ignores SIGTERM is killed 30 seconds later (rc 137), both with the error
+  message; a plain apt error keeps its own code (100) with no message, and a success carries on.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
 
 ## TODO
@@ -191,6 +195,3 @@ Which commit gets the tag:
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
-- setup-molecule: put a `timeout` on its `apt-get` calls. A consumer can't time-limit a composite
-  action's steps, only the whole `uses:` step (a stuck apt once hung a windows domain-lab job for two
-  hours; that repo now limits its setup-molecule step to 15 minutes).
