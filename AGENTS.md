@@ -206,6 +206,9 @@ Which commit gets the tag:
   `windows_cluster` run `dependency` and `syntax` on the new role and tasks, then stop at `/dev/kvm`.
   The account expression gives `vagrant` for `vagrant` and `MOLECULELAB\vagrant` and `fallback` for
   a `LAB\fallback` user fact. CI's `windows-lab` jobs are the Windows proof (see the PR).
+- 0.3.1, on the Mac: lint, sanity and `docker_smoke` pass. The Tamper Protection branch of the
+  Defender script (write ignored, warning, no change) can't be exercised on the lab box, which has
+  Tamper Protection off; CI's `windows_dc` and `windows_cluster` prove the normal branch.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
 
 ## TODO

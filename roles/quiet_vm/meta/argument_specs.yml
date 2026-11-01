@@ -18,4 +18,5 @@ argument_specs:
         default: true
         description:
           - Set Defender's C(DisableRealtimeMonitoring) preference. A VM without Defender (no
-            C(Get-MpPreference)) is left alone and reported in the task's C(output).
+            C(Get-MpPreference)) is left alone, and on one whose Tamper Protection ignores the write
+            the task warns instead of reporting a change; both are reported in the task's C(output).

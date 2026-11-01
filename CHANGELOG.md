@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 (2026-11-01)
+
+- **`quiet_vm` converges with Defender Tamper Protection on.** `Set-MpPreference
+  -DisableRealtimeMonitoring` is silently ignored while Tamper Protection is on, so the Defender task
+  reported `changed` on every run. It now reads the preference back after the write, reports
+  `changed` only when the value flipped, and warns (the task's `warning` list and
+  `output[0].tamper_protected`) when the write didn't take, so a lab with Defender on still runs and a
+  second run reports no change either way. Found in review of PR #9; the lab box has Tamper
+  Protection off, so CI never saw it.
+- `.claude/worktrees/` is ignored by git.
+
 ## 0.3.0 (2026-11-01)
 
 The `ad_forest` items of the 2026-11-01 `win_powershell` review
