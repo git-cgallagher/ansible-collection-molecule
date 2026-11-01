@@ -8,7 +8,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, roles `ad_forest` and `quiet_vm` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
 | `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config, `tasks/` their shared verify tasks | not shipped |
-| `docs/MIGRATION.md` | the migration record: isc (2.0.1), orchestration and windows (formerly gpo), all on the driver | — |
+| `docs/MIGRATION.md` | the migration record: isc (2.0.1), orchestration, windows (formerly gpo) and aws, all on the driver | — |
 
 ## Commands
 
@@ -209,6 +209,10 @@ Which commit gets the tag:
 - 0.3.1, on the Mac: lint, sanity and `docker_smoke` pass. The Tamper Protection branch of the
   Defender script (write ignored, warning, no change) can't be exercised on the lab box, which has
   Tamper Protection off; CI's `windows_dc` and `windows_cluster` prove the normal branch.
+- aws on the driver (aws PR #4, merged 2026-11-01 as `465f104`): its first scenario,
+  `ssm_parameter`, passes locally and in CI inside the ansible-runtime image (`0.2.1-ci`), with two
+  docker platforms on one network from `platform_defaults` (`docker_networks` + `networks`) and moto
+  keeping its own entrypoint through `override_command: false`.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
 
 ## TODO
