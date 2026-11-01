@@ -8,7 +8,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, role `ad_forest` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
 | `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config | not shipped |
-| `docs/MIGRATION.md` | the per-repo plan for isc and windows (formerly gpo) | — |
+| `docs/MIGRATION.md` | the per-repo plan: isc done (2.0.1), windows (formerly gpo) next | — |
 
 ## Commands
 
@@ -59,9 +59,18 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
 ## Releasing
 
 Merge to `main` with `galaxy.yml` and `pyproject.toml` versions bumped together and a CHANGELOG entry,
-then tag `vX.Y.Z` (annotated) on the merge commit; `v0.1.0` is the first. Consumers pin the setup-molecule action's commit SHA (with a
+then push an annotated tag `vX.Y.Z`. Consumers pin the setup-molecule action's commit SHA (with a
 `# vX.Y.Z` comment), which installs the driver and the collection from that same commit. Galaxy and
 PyPI publishing aren't set up yet (TODO below).
+
+Which commit gets the tag:
+
+- **The PR's head**, if `main` didn't move while the PR was open, so the head's tree equals the
+  merge commit's (`git rev-parse <head>^{tree} <merge>^{tree}`). A consumer PR can then pin that SHA
+  and prove it in its own CI before the release, with nothing to re-pin afterwards. `v0.2.0` is
+  `b2601b3`, the head of PR #4; its merge commit `552ba75` has the same tree, and isc PR #18 was
+  tested and merged on that pin.
+- **The merge commit** otherwise (`v0.1.0` is `d9421b5`).
 
 ## Repo settings (public-repo baseline, applied 2026-10-31)
 
@@ -160,8 +169,14 @@ PyPI publishing aren't set up yet (TODO below).
   `platform_defaults` with `groups`, two VMs inheriting one `winrm_port`, and a docker platform
   inheriting `box_url` each fail with a message. The merge expression gives the same platforms on
   ansible-core 2.18.19 and 2.21.5, and the built tarball ships `playbooks/vars/driver.yml`.
-- **Not verified yet:** the isc and windows repos' Windows scenarios on the driver (their
-  migrations), and lab networks with more than two VMs or more than one network per VM.
+- isc on the driver (isc PR #18, 2.0.1, merged 2026-10-31 as `39d33e1`): all 22 required checks
+  pass on v0.2.0, so the setup-molecule action and `constraints` work in a real consumer, as do the
+  7 docker scenarios, including the privileged systemd ones and the 7-platform matrix. The manual
+  `windows-dc` run on the PR branch also passed (isc run 41262871072): a Windows Server 2022 VM
+  booted through `windows_vm` and was promoted by `ad_forest`, and Kea's GSS-TSIG updates were read
+  back from Microsoft DNS.
+- **Not verified yet:** the windows repo's scenarios on the driver (its migration, after its PRs 20
+  and 22), and lab networks with more than two VMs or more than one network per VM.
 
 ## TODO
 
@@ -170,4 +185,4 @@ PyPI publishing aren't set up yet (TODO below).
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
-- isc and windows (formerly gpo) migrations: `docs/MIGRATION.md`.
+- The windows (formerly gpo) migration, after that repo's PRs 20 and 22: `docs/MIGRATION.md`, issue #3.
