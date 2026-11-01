@@ -111,8 +111,10 @@ target runs the module on the controller, through the local connection. aws PR #
 
 - **The module on a real remote host.** `node1` (`python:3.13-slim`, over the docker connection)
   runs it against `moto` (`motoserver/moto:5.2.5`, standing in for SSM and STS), through the same
-  cross-account role chain as the integration target. boto3 is installed on `node1` only and the
-  controller has none, so the module, module_utils included, can only have run there.
+  cross-account role chain as the integration target. boto3 lives in a venv only `node1` has, and
+  `node1`'s `ansible_python_interpreter` points into it, so the module, module_utils included, can
+  only have run there, whatever the controller image contains. (aws PR #4 first relied on the image
+  having no boto3; ansible-runtime 0.4.0 adds it, so aws PR #6 moved the proof to the interpreter.)
 - **Two platforms on one network, from `platform_defaults`:** `docker_networks` creates
   `aws-molecule` and `networks` joins both containers to it, so `node1` reaches `moto` by name.
 - **`override_command: false` for moto.** The image's entrypoint is the server, and the kind's
@@ -129,7 +131,7 @@ Verified: a full local `molecule test` through the same wrapper and image (creat
 converge, idempotence, verify, destroy, nothing left running), all 19 checks on the PR, and every
 stable check on main, including the new `molecule ssm_parameter` (aws run
 [41351804358](https://github.com/git-cgallagher/ansible-collection-aws/actions/runs/41351804358)).
-It isn't a required check there yet (aws AGENTS.md TODO).
+It has been a required check there since 2026-11-01 (aws PR #5).
 
 ## Order
 
