@@ -175,23 +175,23 @@ For a cluster lab, keep in mind:
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.2.0"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.2.1"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.2.0
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.2.1
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.2.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.2.1
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
     # constraints: .github/ci/requirements.txt   # pip -c: the repo's pinned tool versions
     # pip: ansible-lint                          # extra packages
-    # kvm: 'true'          # windows_vm platforms
+    # kvm: 'true'          # windows_vm platforms (apt-get time-limited: 3 min update, 8 min install)
     # lab-dir: /mnt/lab    # their box cache and disks
 - run: molecule test -s ha3
   working-directory: roles/kea_dhcp

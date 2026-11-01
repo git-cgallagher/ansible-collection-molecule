@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 (2026-11-01)
+
+- **setup-molecule time-limits apt.** With `kvm: 'true'`, `apt-get update` and the QEMU
+  `apt-get install` stop after 3 and 8 minutes (killed 30 seconds later if they ignore it) and fail
+  the step with a message to re-run the job, instead of hanging until the job's own limit. A caller
+  can only limit the whole action, since a composite action's steps can't set `timeout-minutes`,
+  and a stuck apt once hung an ansible-collection-windows `domain-lab` job for two hours.
+
 ## 0.2.0 (2026-10-31)
 
 What moving isc and windows onto the driver needs.
