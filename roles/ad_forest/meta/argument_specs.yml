@@ -4,7 +4,13 @@ argument_specs:
     short_description: Promote a test VM to the first DC of a new forest
     description:
       - For throwaway lab VMs only. It turns off Windows Update and Defender real-time scanning
-        and puts the connection account in Domain Admins.
+        (through C(git_cgallagher.molecule.quiet_vm)) and puts the connection account in Domain
+        Admins.
+      - The connection account is C(ansible_user) without a C(DOMAIN\) prefix. When the inventory
+        doesn't set C(ansible_user) (a Kerberos ticket, say), the role reads the name the connection
+        runs as from C(ansible.windows.setup)'s C(user) facts instead.
+      - Every task reports C(changed) only when it changed the VM, so a second run reports none, and
+        check mode predicts without writing.
     options:
       ad_forest_domain:
         type: str
@@ -48,7 +54,7 @@ argument_specs:
         type: list
         elements: str
         default: [Domain Admins]
-        description: Groups the connection account joins.
+        description: Groups (by sAMAccountName) the connection account joins; they must exist.
       ad_forest_sync_clock:
         type: bool
         default: false
@@ -56,4 +62,4 @@ argument_specs:
       ad_forest_quiet:
         type: bool
         default: true
-        description: Stop Windows Update and Defender real-time scanning.
+        description: Stop Windows Update and Defender real-time scanning (the C(quiet_vm) role), first and again after the promotion.

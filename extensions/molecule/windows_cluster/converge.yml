@@ -1,7 +1,13 @@
 ---
-- name: Reach both nodes
+# quiet_vm the way a workgroup lab's prepare uses it (no DC, so no ad_forest);
+# the idempotence step then proves it changes nothing the second time.
+- name: Quiet both nodes and reach them
   hosts: all
   gather_facts: false
   tasks:
+    - name: Quiet the VM
+      ansible.builtin.include_role:
+        name: git_cgallagher.molecule.quiet_vm
+
     - name: Ping
       ansible.windows.win_ping:

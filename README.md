@@ -16,8 +16,10 @@ only describes its platforms; the driver creates and destroys them.
   | `docker` (default) | `git_cgallagher.molecule.docker` | a container through the docker CLI, plus its networks and Dockerfile build | Docker |
   | `windows_vm` | `git_cgallagher.molecule.windows_vm` | a Windows Server Vagrant box under QEMU/KVM, WinRM and other ports forwarded to 127.0.0.1; several per scenario, on shared lab networks for clusters | Linux x86-64 with `/dev/kvm`, ~20 GB disk |
 
-  Plus **`git_cgallagher.molecule.ad_forest`**, a prepare-time role that promotes a
-  `windows_vm` to the first DC of a new forest.
+  Plus two prepare-time roles for Windows labs: **`git_cgallagher.molecule.ad_forest`**
+  promotes a `windows_vm` to the first DC of a new forest, and
+  **`git_cgallagher.molecule.quiet_vm`** stops Windows Update and Defender real-time scanning on
+  any test VM (`ad_forest` runs it first; see [Quieting a test VM](#quieting-a-test-vm)).
 - **`setup-molecule`**, a composite GitHub Action that installs Python, ansible-core,
   Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked),
   optionally under the repo's pip constraints file.
@@ -170,22 +172,57 @@ For a cluster lab, keep in mind:
 - **Memory.** GitHub's standard Linux runner has 4 vCPUs and 16 GB: room for about three VMs at
   3–4 GB each (an estimate; the `windows_cluster` self-test runs two at 3 GB).
 
+## Quieting a test VM
+
+Windows Update and Defender real-time scanning slow a lab run down, and Windows Update can reboot
+the VM under it. `quiet_vm` turns both off: the `wuauserv` service stopped and disabled through
+`ansible.windows.win_service`, and Defender's `DisableRealtimeMonitoring` preference set through a
+small `win_powershell` (there is no module), which reads the preference first so it reports `changed`
+only when it wrote something and predicts in check mode. A VM without Defender is left alone. Both
+halves have a toggle (`quiet_vm_windows_update`, `quiet_vm_defender`, default `true`).
+
+`ad_forest` includes it (`ad_forest_quiet: true`, the default), first and again after the promotion:
+installing features and rebooting re-arm the Windows Update service, so a lab whose converge installs
+features may want the include after that step too. A lab that doesn't promote a DC, such
+as ansible-collection-windows' wsfc and IIS scenarios, includes it from its `prepare.yml` instead of
+carrying the block itself:
+
+```yaml
+# roles/wsfc/molecule/default/prepare.yml
+- name: Prepare a workgroup node
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Wait for the connection
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+    - name: Quiet the VM (Windows Update off, Defender real-time scanning off)
+      ansible.builtin.include_role:
+        name: git_cgallagher.molecule.quiet_vm
+```
+
+The collection is already installed wherever the driver is (the setup-molecule action, or the
+`ansible-galaxy` line below), so nothing else is needed. The `windows_cluster` self-test runs it this
+way on two workgroup nodes, and `windows_dc` through `ad_forest`; both pass Molecule's idempotence
+step.
+
 ## Install
 
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.2.1"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.0"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.2.1
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.0
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.2.1
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.0
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml

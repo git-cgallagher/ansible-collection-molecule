@@ -5,9 +5,9 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | Path | What | Ships via |
 |---|---|---|
 | `molecule_git_cgallagher/`, `pyproject.toml` | the `molecule-git-cgallagher` Molecule driver: name, schema, bundled create/destroy that import the collection's playbooks | pip (git URL; PyPI later) |
-| `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, role `ad_forest` | Galaxy / git |
+| `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, roles `ad_forest` and `quiet_vm` | Galaxy / git |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
-| `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config | not shipped |
+| `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config, `tasks/` their shared verify tasks | not shipped |
 | `docs/MIGRATION.md` | the migration record: isc (2.0.1), orchestration and windows (formerly gpo), all on the driver | — |
 
 ## Commands
@@ -55,6 +55,15 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   registration on `management`.
 - Platform key names for `docker` follow molecule-plugins' docker driver so consumers' existing
   `platforms:` carry over. Keep that true when adding keys.
+- **The Windows lab roles follow Ansible's module principles (owner rule, 2026-11-01).** A task
+  reports `changed` only when it changed the VM, a second run reports none (the self-tests'
+  `idempotence` step is the proof: `windows_dc` runs `ad_forest` from converge for that reason), and
+  check mode predicts without writing. Use a module where one exists; a `win_powershell` that has
+  to stay (Defender's `Set-MpPreference`, `Set-Date`) reads the state first, sets `$Ansible.Changed`
+  from it and declares `[CmdletBinding(SupportsShouldProcess)]`, or win_powershell skips it in
+  check mode. `quiet_vm` is the shared "quiet the VM" step; the windows repo's prepare playbooks
+  include it (`ansible.builtin.include_role: name: git_cgallagher.molecule.quiet_vm`) instead of
+  copying the block.
 
 ## Releasing
 
@@ -120,6 +129,9 @@ Which commit gets the tag:
 - **ansible-test's devel container can't start on GitHub runners** (it fails remounting
   `/sys/fs/cgroup`, 2026-10-31, in isc too), so `sanity (devel, venv)` runs `ansible-test --venv`
   on a plain runner, as git_cgallagher.orchestration does.
+- **Windows re-arms `wuauserv` after a feature install and reboot** (the servicing stack starts it
+  and resets its start mode). `quiet_vm` at the start of `ad_forest` alone made `windows_dc`'s
+  idempotence step fail (PR #9's first run), so the role includes it again at the end.
 - **ansible-core 2.19+ templates an `assert`'s `fail_msg` even when the assertion passes.** A
   `fail_msg` that dereferences a key the assertion is checking for (`{{ item.kind }}`) errors on the
   good path; use `default()` in messages.
@@ -189,6 +201,11 @@ Which commit gets the tag:
   under `bash -eo pipefail` (as GitHub runs a step) and a fake `apt-get`: a hang stops at the limit
   (rc 124) and one that ignores SIGTERM is killed 30 seconds later (rc 137), both with the error
   message; a plain apt error keeps its own code (100) with no message, and a success carries on.
+- 0.3.0, on the Mac: lint, sanity (34 tests) and `docker_smoke` pass (`docker_full` couldn't: amd64
+  emulation had vanished, the binfmt gotcha above; CI's job is the proof); `windows_dc` and
+  `windows_cluster` run `dependency` and `syntax` on the new role and tasks, then stop at `/dev/kvm`.
+  The account expression gives `vagrant` for `vagrant` and `MOLECULELAB\vagrant` and `fallback` for
+  a `LAB\fallback` user fact. CI's `windows-lab` jobs are the Windows proof (see the PR).
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
 
 ## TODO

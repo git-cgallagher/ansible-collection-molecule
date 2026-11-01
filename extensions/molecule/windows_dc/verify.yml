@@ -24,6 +24,9 @@
           - dc_domain.output[0].zone == lab_domain
           - dc_domain.output[0].admin
 
+    - name: Check what quiet_vm did
+      ansible.builtin.import_tasks: ../tasks/verify_quiet_vm.yml
+
 # The container shares the runner's network namespace, so the DC's forwarded
 # DNS port on 127.0.0.1 is reachable from it, as Kea reaches it in
 # git_cgallagher.isc's ms-dns scenario.

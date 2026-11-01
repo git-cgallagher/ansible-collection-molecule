@@ -1,0 +1,6 @@
+---
+# Stop Windows Update and keep it from starting again (ansible.windows.win_service).
+quiet_vm_windows_update: true
+
+# Turn off Defender real-time scanning (Set-MpPreference; there is no module).
+quiet_vm_defender: true

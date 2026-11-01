@@ -1,0 +1,34 @@
+---
+# Quiet a throwaway Windows test VM: Windows Update and Defender real-time
+# scanning compete with a test run for CPU and disk, and Windows Update can
+# reboot the VM under it.
+- name: Stop and disable Windows Update
+  when: quiet_vm_windows_update | bool
+  ansible.windows.win_service:
+    name: wuauserv
+    state: stopped
+    start_mode: disabled
+
+# No module covers Set-MpPreference. The script reads the preference first
+# and only writes when it differs, so it reports changed honestly and
+# predicts in check mode (SupportsShouldProcess makes win_powershell run it
+# there). A VM without Defender is a no-op, reported in output[0].
+- name: Turn off Defender real-time scanning
+  when: quiet_vm_defender | bool
+  ansible.windows.win_powershell:
+    script: |
+      [CmdletBinding(SupportsShouldProcess)]
+      param()
+      $Ansible.Changed = $false
+      if (-not (Get-Command -Name Get-MpPreference -ErrorAction SilentlyContinue)) {
+          [ordered]@{ defender = $false; realtime_disabled = $null }
+          return
+      }
+      $before = [bool](Get-MpPreference -ErrorAction Stop).DisableRealtimeMonitoring
+      if (-not $before) {
+          $Ansible.Changed = $true
+          if (-not $Ansible.CheckMode) {
+              Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+          }
+      }
+      [ordered]@{ defender = $true; realtime_disabled = ($before -or -not $Ansible.CheckMode) }

@@ -22,13 +22,16 @@ ad_forest_ready_test: ""
 # and Group Policy Preferences writes go through it; it lags the reboot).
 ad_forest_wait_sysvol_path: false
 
-# Groups the connection account joins; the connection is then reset so the
-# new membership is in its logon token.
+# Existing groups the connection account (ansible_user, or the name the
+# connection runs as) joins; the connection is then reset so the new
+# membership is in its logon token.
 ad_forest_admin_groups: [Domain Admins]
 
 # Set the DC's clock from the controller. Kerberos tolerates 5 minutes of
 # skew; a lone PDC has no time source and starts from the host's RTC.
 ad_forest_sync_clock: false
 
-# Stop Windows Update and Defender real-time scanning (faster, quieter runs).
+# Stop Windows Update and Defender real-time scanning (faster, quieter runs),
+# through git_cgallagher.molecule.quiet_vm: first thing, and again at the end,
+# since the feature install and the reboots re-arm the Windows Update service.
 ad_forest_quiet: true
