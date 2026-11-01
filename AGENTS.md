@@ -84,6 +84,9 @@ Which commit gets the tag:
 - Secret scanning + push protection, Dependabot alerts + security updates, private vulnerability
   reporting (`SECURITY.md`), CodeQL default setup (`python`, `actions`), delete branch on merge;
   wiki and projects off. Actions are SHA-pinned; `.github/dependabot.yml` keeps them current.
+- Every CI job sets `timeout-minutes` (2026-11-01): GitHub's default is 6 hours, and a stalled
+  install would hold the runner that long. `ci.yml`'s jobs get 15 (30 for Molecule), several times
+  their slowest green run; `windows-lab` keeps 120. A new job needs one too.
 - Pushes go over SSH (`git@github.com:`): the `gh` token has no `workflow` scope, so HTTPS pushes
   that touch `.github/workflows/` are refused.
 

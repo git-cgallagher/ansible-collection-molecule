@@ -16,9 +16,13 @@ env:
   PY_COLORS: '1'
   ANSIBLE_FORCE_COLOR: '1'
 
+# Every job sets timeout-minutes: GitHub's default is 6 hours, and a stalled
+# install or image pull would hold the runner that long. Each limit is several
+# times the job's slowest green run (2026-11-01).
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -35,6 +39,7 @@ jobs:
   sanity:
     name: sanity (${{ matrix.ansible-core-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +57,7 @@ jobs:
   sanity-devel:
     name: sanity (devel, venv)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     continue-on-error: ${{ github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -72,6 +78,7 @@ jobs:
   molecule:
     name: molecule ${{ matrix.scenario }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
