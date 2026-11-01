@@ -9,8 +9,10 @@ one exists, and the lab-bootstrap block the four Windows labs copied now lives i
 - **New role `quiet_vm`:** stops and disables Windows Update (`ansible.windows.win_service`) and
   turns off Defender real-time scanning (a `win_powershell` that reads the preference first, so it
   reports `changed` only when it wrote and predicts in check mode; a VM without Defender is a no-op).
-  Toggles `quiet_vm_windows_update` and `quiet_vm_defender`. `ad_forest` uses it (`ad_forest_quiet`),
-  and the workgroup labs in ansible-collection-windows (wsfc, iis) can include it from prepare.
+  Toggles `quiet_vm_windows_update` and `quiet_vm_defender`. `ad_forest` uses it (`ad_forest_quiet`)
+  first and again after the promotion, since the feature install and the reboots re-arm the Windows
+  Update service; the workgroup labs in ansible-collection-windows (wsfc, iis) can include it from
+  prepare.
 - **`ad_forest`:** the SYSVOL path wait is `ansible.windows.win_stat` (`until` the path exists); the
   admin-group membership is `microsoft.ad.group` (`members.add`), one task per group, with the
   account taken from `ansible_user` without a `DOMAIN\` prefix, or from the `user` facts when the

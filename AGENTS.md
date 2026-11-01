@@ -126,6 +126,9 @@ Which commit gets the tag:
 - **ansible-test's devel container can't start on GitHub runners** (it fails remounting
   `/sys/fs/cgroup`, 2026-10-31, in isc too), so `sanity (devel, venv)` runs `ansible-test --venv`
   on a plain runner, as git_cgallagher.orchestration does.
+- **Windows re-arms `wuauserv` after a feature install and reboot** (the servicing stack starts it
+  and resets its start mode). `quiet_vm` at the start of `ad_forest` alone made `windows_dc`'s
+  idempotence step fail (PR #9's first run), so the role includes it again at the end.
 - **ansible-core 2.19+ templates an `assert`'s `fail_msg` even when the assertion passes.** A
   `fail_msg` that dereferences a key the assertion is checking for (`{{ item.kind }}`) errors on the
   good path; use `default()` in messages.

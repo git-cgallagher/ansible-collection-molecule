@@ -181,7 +181,9 @@ small `win_powershell` (there is no module), which reads the preference first so
 only when it wrote something and predicts in check mode. A VM without Defender is left alone. Both
 halves have a toggle (`quiet_vm_windows_update`, `quiet_vm_defender`, default `true`).
 
-`ad_forest` includes it (`ad_forest_quiet: true`, the default). A lab that doesn't promote a DC, such
+`ad_forest` includes it (`ad_forest_quiet: true`, the default), first and again after the promotion:
+installing features and rebooting re-arm the Windows Update service, so a lab whose converge installs
+features may want the include after that step too. A lab that doesn't promote a DC, such
 as ansible-collection-windows' wsfc and IIS scenarios, includes it from its `prepare.yml` instead of
 carrying the block itself:
 

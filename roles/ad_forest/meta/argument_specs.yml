@@ -62,4 +62,4 @@ argument_specs:
       ad_forest_quiet:
         type: bool
         default: true
-        description: Stop Windows Update and Defender real-time scanning (the C(quiet_vm) role).
+        description: Stop Windows Update and Defender real-time scanning (the C(quiet_vm) role), first and again after the promotion.

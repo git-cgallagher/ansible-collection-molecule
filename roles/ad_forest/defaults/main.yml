@@ -32,5 +32,6 @@ ad_forest_admin_groups: [Domain Admins]
 ad_forest_sync_clock: false
 
 # Stop Windows Update and Defender real-time scanning (faster, quieter runs),
-# through git_cgallagher.molecule.quiet_vm.
+# through git_cgallagher.molecule.quiet_vm: first thing, and again at the end,
+# since the feature install and the reboots re-arm the Windows Update service.
 ad_forest_quiet: true

@@ -119,3 +119,13 @@
       $Ansible.Changed = $skew -gt 30
       if ($Ansible.Changed -and -not $Ansible.CheckMode) { Set-Date -Date $target.ToLocalTime() | Out-Null }
   register: ad_forest_clock
+
+# The feature install and the two reboots re-arm the Windows Update service
+# (the servicing stack starts it and resets its start mode; CI's windows_dc
+# idempotence step showed it), so the VM is quieted again at the end. The
+# first run reports the re-quiet as changed, which it is; a second run finds
+# both calls quiet.
+- name: Quiet the VM again after the promotion
+  when: ad_forest_quiet | bool
+  ansible.builtin.include_role:
+    name: git_cgallagher.molecule.quiet_vm
