@@ -178,7 +178,8 @@ Windows Update and Defender real-time scanning slow a lab run down, and Windows 
 the VM under it. `quiet_vm` turns both off: the `wuauserv` service stopped and disabled through
 `ansible.windows.win_service`, and Defender's `DisableRealtimeMonitoring` preference set through a
 small `win_powershell` (there is no module), which reads the preference first so it reports `changed`
-only when it wrote something and predicts in check mode. A VM without Defender is left alone. Both
+only when the value flipped and predicts in check mode. A VM without Defender is left alone, and
+one whose Tamper Protection ignores the write gets a warning, not a change on every run. Both
 halves have a toggle (`quiet_vm_windows_update`, `quiet_vm_defender`, default `true`).
 
 `ad_forest` includes it (`ad_forest_quiet: true`, the default), first and again after the promotion:
@@ -212,17 +213,17 @@ step.
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.0"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.1"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.0
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.1
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.1
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml

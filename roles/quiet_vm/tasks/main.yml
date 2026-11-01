@@ -10,9 +10,13 @@
     start_mode: disabled
 
 # No module covers Set-MpPreference. The script reads the preference first
-# and only writes when it differs, so it reports changed honestly and
-# predicts in check mode (SupportsShouldProcess makes win_powershell run it
-# there). A VM without Defender is a no-op, reported in output[0].
+# and only writes when it differs, then reads it back: with Defender Tamper
+# Protection on, the write is silently ignored, so changed is set only when
+# the value flipped, and a write that didn't take is a warning (not a
+# failure, so a lab with Defender on still runs) rather than a change
+# reported on every run. SupportsShouldProcess makes win_powershell run it in
+# check mode, where it predicts from the current value. A VM without Defender
+# is a no-op. output[0] has the state read back.
 - name: Turn off Defender real-time scanning
   when: quiet_vm_defender | bool
   ansible.windows.win_powershell:
@@ -21,14 +25,22 @@
       param()
       $Ansible.Changed = $false
       if (-not (Get-Command -Name Get-MpPreference -ErrorAction SilentlyContinue)) {
-          [ordered]@{ defender = $false; realtime_disabled = $null }
+          [ordered]@{ defender = $false; realtime_disabled = $null; tamper_protected = $null }
           return
       }
       $before = [bool](Get-MpPreference -ErrorAction Stop).DisableRealtimeMonitoring
+      $after = $before
       if (-not $before) {
-          $Ansible.Changed = $true
-          if (-not $Ansible.CheckMode) {
+          if ($Ansible.CheckMode) {
+              $Ansible.Changed = $true
+          }
+          else {
               Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop
+              $after = [bool](Get-MpPreference -ErrorAction Stop).DisableRealtimeMonitoring
+              $Ansible.Changed = $after
+              if (-not $after) {
+                  Write-Warning 'Set-MpPreference -DisableRealtimeMonitoring was ignored (Defender Tamper Protection is on); real-time scanning stays on'
+              }
           }
       }
-      [ordered]@{ defender = $true; realtime_disabled = ($before -or -not $Ansible.CheckMode) }
+      [ordered]@{ defender = $true; realtime_disabled = $after; tamper_protected = (-not $before -and -not $after -and -not $Ansible.CheckMode) }
