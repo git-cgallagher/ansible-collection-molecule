@@ -5,17 +5,13 @@
 - name: Destroy the Molecule platforms
   hosts: localhost
   gather_facts: false
-  vars:
-    molecule_kinds: [docker, windows_vm]
-    molecule_lab_dir: >-
-      {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
-         | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}
+  vars_files: [vars/driver.yml]
   tasks:
     - name: Destroy the platforms
       ansible.builtin.include_role:
         name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
         tasks_from: destroy
-      loop: "{{ molecule_yml.platforms | reverse | list }}"
+      loop: "{{ molecule_platforms | reverse | list }}"
       loop_control:
         loop_var: molecule_platform
         label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"

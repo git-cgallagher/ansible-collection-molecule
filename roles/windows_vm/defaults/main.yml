@@ -1,7 +1,7 @@
 ---
 # Input (the kind contract, set by git_cgallagher.molecule.create/destroy):
-# molecule_platform, one entry of molecule_yml.platforms. Its keys are listed
-# in vars/main.yml.
+# molecule_platform, one entry of molecule_platforms (molecule.yml's platforms
+# over the driver's platform_defaults). Its keys are listed in vars/main.yml.
 
 # Box cache, VM disk, pidfile and monitor socket. Needs ~20 GB free while the
 # box isn't cached, ~8 GB after (CI points it at the runner's /mnt disk).

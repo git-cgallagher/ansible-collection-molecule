@@ -17,7 +17,7 @@
       {{ windows_vm_hub_ports | combine({item: 20000
          + ((windows_vm_scenario_key ~ ':' ~ item) | hash('md5'))[0:6] | int(base=16) % 2500 * 16}) }}
   loop: >-
-    {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | map(attribute='lab_networks')
+    {{ molecule_platforms | selectattr('lab_networks', 'defined') | map(attribute='lab_networks')
        | flatten | map(attribute='name') | unique | list }}
 
 - name: Start from the management NIC
@@ -37,7 +37,7 @@
     label: "{{ windows_vm_net.name }}"
   vars:
     windows_vm_members: >-
-      {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
+      {{ molecule_platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
          | selectattr('1.name', 'equalto', windows_vm_net.name) | map(attribute='0.name') | list }}
     windows_vm_hub_port: "{{ windows_vm_hub_ports[windows_vm_net.name] }}"
     windows_vm_port: "{{ windows_vm_hub_port | int + 1 + windows_vm_members.index(molecule_platform.name) }}"

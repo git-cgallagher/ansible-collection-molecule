@@ -42,7 +42,7 @@
       {{ (windows_vm_nets | rejectattr('name', 'defined') | list)
          + (windows_vm_nets | rejectattr('ipv4_address', 'defined') | list) }}
     windows_vm_others: >-
-      {{ molecule_yml.platforms | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'windows_vm')
+      {{ molecule_platforms | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'windows_vm')
          | rejectattr('name', 'equalto', molecule_platform.name) | list }}
     windows_vm_port_clash: >-
       {{ ([molecule_platform.winrm_port] + (molecule_platform.forwards | default([]) | map(attribute='port') | list))
@@ -63,7 +63,7 @@
     label: "{{ item.name }}"
   vars:
     windows_vm_addresses: >-
-      {{ molecule_yml.platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
+      {{ molecule_platforms | selectattr('lab_networks', 'defined') | subelements('lab_networks')
          | selectattr('1.name', 'equalto', item.name) | map(attribute='1.ipv4_address') | list }}
 
 - name: Work out paths and port forwards

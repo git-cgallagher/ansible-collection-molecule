@@ -1,0 +1,5 @@
+# Passed to setup-molecule's constraints input by ci.yml's molecule job, so
+# CI exercises that input. Floors, not pins: this repo's CI runs the newest
+# Molecule and ansible-core on purpose (pyproject.toml, meta/runtime.yml).
+ansible-core>=2.16
+molecule>=25.1

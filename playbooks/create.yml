@@ -6,27 +6,31 @@
 #
 # A kind is a role in this collection with `create`, `ready` and `destroy`
 # entry points. It reads molecule_platform (and molecule_lab_dir if it needs
-# disk), and its create appends instance-config entries to <kind>_instances.
-# Every platform's create runs before any platform's ready, so a kind's
-# create starts things and its ready waits for them.
+# disk, molecule_platforms if it needs the other platforms), and its create
+# appends instance-config entries to <kind>_instances. Every platform's create
+# runs before any platform's ready, so a kind's create starts things and its
+# ready waits for them.
 - name: Create the Molecule platforms
   hosts: localhost
   gather_facts: false
-  vars:
-    molecule_kinds: [docker, windows_vm]
-    # Box cache and VM disks: $MOLECULE_LAB_DIR, else ~/.cache/molecule-lab
-    # (CI points it at the runner's /mnt disk; a base config can set it in
-    # provisioner.env).
-    molecule_lab_dir: >-
-      {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
-         | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}
+  vars_files: [vars/driver.yml]
   tasks:
+    # Molecule's inventory comes from the platform entries as written, so
+    # defaults for these would reach the kinds but not the inventory.
+    - name: Check the driver's platform_defaults
+      ansible.builtin.assert:
+        that: molecule_platform_defaults.keys() | intersect(['name', 'groups', 'children']) | length == 0
+        fail_msg: >-
+          driver.options.platform_defaults can't set name, groups or children (Molecule
+          builds its inventory from each platform entry as written); set them on the platforms.
+        quiet: true
+
     - name: Require a known kind on every platform
       ansible.builtin.assert:
         that: item.kind | default('docker') in molecule_kinds
         fail_msg: "Platform {{ item.name }}: unknown kind {{ item.kind | default('docker') }} (known: {{ molecule_kinds | join(', ') }})."
         quiet: true
-      loop: "{{ molecule_yml.platforms }}"
+      loop: "{{ molecule_platforms }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -34,7 +38,7 @@
       ansible.builtin.include_role:
         name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
         tasks_from: create
-      loop: "{{ molecule_yml.platforms }}"
+      loop: "{{ molecule_platforms }}"
       loop_control:
         loop_var: molecule_platform
         label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"
@@ -45,7 +49,7 @@
       ansible.builtin.include_role:
         name: "git_cgallagher.molecule.{{ molecule_platform.kind | default('docker') }}"
         tasks_from: ready
-      loop: "{{ molecule_yml.platforms }}"
+      loop: "{{ molecule_platforms }}"
       loop_control:
         loop_var: molecule_platform
         label: "{{ molecule_platform.name }} ({{ molecule_platform.kind | default('docker') }})"

@@ -12,6 +12,13 @@ argument_specs:
             (default 4096), C(cpus) (default 2), C(forwards), a list of C({port, guest_port, protocols}), and
             C(lab_networks), a list of C({name, ipv4_address, prefix_length}) shared with the scenario's other
             VMs on the same network name. Any other key fails (C(windows_vm_platform_keys) in C(vars/main.yml)).
+      molecule_platforms:
+        type: list
+        elements: dict
+        required: true
+        description:
+          - Every platform in the run, after the driver's C(platform_defaults) (set by the create/destroy
+            playbooks). Read for the host-port and lab-address checks and each lab network's members.
       windows_vm_dir:
         type: path
         description:

@@ -19,7 +19,8 @@ only describes its platforms; the driver creates and destroys them.
   Plus **`git_cgallagher.molecule.ad_forest`**, a prepare-time role that promotes a
   `windows_vm` to the first DC of a new forest.
 - **`setup-molecule`**, a composite GitHub Action that installs Python, ansible-core,
-  Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked).
+  Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked),
+  optionally under the repo's pip constraints file.
 
 ## A scenario
 
@@ -89,6 +90,41 @@ prebuilt images are always pulled (for `platform`, that architecture).
 directory: `$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else
 `~/.cache/molecule-lab`.
 
+### Keys every platform shares: `platform_defaults`
+
+When a scenario sets `platforms`, Molecule replaces the base config's list rather than merging it, so
+a box pin kept there would have to be repeated in every scenario that names its own VM. The driver's
+`platform_defaults` option holds such keys once: each platform entry starts from them, and its own
+keys win.
+
+```yaml
+# .config/molecule/config.yml
+driver:
+  name: molecule-git-cgallagher
+  options:
+    platform_defaults:
+      kind: windows_vm
+      box_url: https://vagrantcloud.com/jborean93/boxes/WindowsServer2022/versions/1.2.0/providers/libvirt/amd64/vagrant.box
+      box_sha256: bc2e6a173390d4457e66ba30d5ffff7dbc87b849532bc0f41f4c1246f4e53bd4
+      box_user: vagrant
+      box_password: vagrant
+      winrm_port: 5985
+platforms:
+  - name: dc01
+```
+
+```yaml
+# a scenario's molecule.yml: its own VM, the same box
+platforms:
+  - name: iis01
+```
+
+The defaults go under every platform of the scenario, whatever its kind, and the kind checks the
+merged entry's keys, so they suit scenarios whose platforms share a kind. They can't set `name`,
+`groups` or `children`: Molecule builds its inventory from the entries as written. The option needs
+`driver: molecule-git-cgallagher` (Molecule's schema for `driver: default` rejects options it
+doesn't know).
+
 ### Several VMs, and clusters
 
 A scenario can list several `windows_vm` platforms, each with its own `winrm_port` (and forward
@@ -100,16 +136,17 @@ It has the same address (10.0.2.15) on every VM and can't reach the others. For 
 give the VMs a **lab network**:
 
 ```yaml
+driver:
+  options:
+    platform_defaults:
+      kind: windows_vm
+      # box_url, box_sha256, box_user, box_password ...
 platforms:
   - name: node1
-    kind: windows_vm
-    # box_url, box_sha256, box_user, box_password ...
     winrm_port: 15985
     lab_networks:
       - {name: cluster, ipv4_address: 10.42.0.11}      # prefix_length: 24 by default
   - name: node2
-    kind: windows_vm
-    # ...
     winrm_port: 15986
     lab_networks:
       - {name: cluster, ipv4_address: 10.42.0.12}
@@ -138,20 +175,22 @@ For a cluster lab, keep in mind:
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.1.0"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.2.0"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.1.0
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.2.0
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.1.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.2.0
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
+    # constraints: .github/ci/requirements.txt   # pip -c: the repo's pinned tool versions
+    # pip: ansible-lint                          # extra packages
     # kvm: 'true'          # windows_vm platforms
     # lab-dir: /mnt/lab    # their box cache and disks
 - run: molecule test -s ha3
@@ -165,10 +204,12 @@ Without the pip package, a scenario can use `driver: default` (`options: {manage
 ## Adding a kind
 
 A kind is a role in this collection with `create`, `ready` and `destroy` entry points. Each reads
-`molecule_platform` (one `molecule.yml` platform) and `molecule_lab_dir`. `create` checks the
-platform's keys, starts it and appends its Molecule instance-config entries to `<kind>_instances`;
-`ready` waits until it's usable (every platform's `create` runs before any `ready`). The kind is
-listed in `molecule_kinds` in `playbooks/create.yml` and `playbooks/destroy.yml`.
+`molecule_platform` (one `molecule.yml` platform, over `platform_defaults`) and `molecule_lab_dir`,
+and `molecule_platforms` (every platform, the same way) if it needs the others: `windows_vm` checks
+host ports and lab addresses across them. `create` checks the platform's keys, starts it and appends
+its Molecule instance-config entries to `<kind>_instances`; `ready` waits until it's usable (every
+platform's `create` runs before any `ready`). The kind is listed in `molecule_kinds` in
+`playbooks/vars/driver.yml`.
 
 ## License
 
