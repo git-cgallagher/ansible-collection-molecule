@@ -227,13 +227,18 @@ In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
-    # constraints: .github/ci/requirements.txt   # pip -c: the repo's pinned tool versions
+    # constraints: .cache/constraints.txt  # pip -c, e.g. the ansible-runtime image's pins (below)
     # pip: ansible-lint                          # extra packages
     # kvm: 'true'          # windows_vm platforms (apt-get time-limited: 3 min update, 8 min install)
     # lab-dir: /mnt/lab    # their box cache and disks
 - run: molecule test -s ha3
   working-directory: roles/kea_dhcp
 ```
+
+The `git_cgallagher.*` collections take `constraints` from the
+[ansible-runtime](https://github.com/git-cgallagher/ansible-runtime) image their CI pins, so a lab
+runs the same versions as their jobs in the image. Read it in a step before this one:
+`docker run --rm "$RUNTIME_IMAGE" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt`.
 
 Without the pip package, a scenario can use `driver: default` (`options: {managed: true}`) and a
 `create.yml`/`destroy.yml` that each hold one line,

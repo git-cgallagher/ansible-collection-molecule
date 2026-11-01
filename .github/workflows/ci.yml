@@ -15,6 +15,12 @@ permissions:
 env:
   PY_COLORS: '1'
   ANSIBLE_FORCE_COLOR: '1'
+  # Every tool version this repo's CI uses (lint, molecule, windows-lab.yml) comes from this
+  # image's /usr/share/ansible-runtime/constraints.txt (ansible-runtime's shared dependency
+  # model, ansible-runtime#8): the versions every consumer runs the driver with. Upstream
+  # breakage shows up through ansible-runtime's Renovate bumps, whose consumers job runs
+  # Molecule. Only the ansible-test sanity matrix picks its own versions. Bump tag AND digest.
+  RUNTIME_IMAGE: ghcr.io/git-cgallagher/ansible-runtime:0.5.0-ci@sha256:f5213eaa162158646e61c29e9c11f8b2dd4bcaf1f8c7ac9f98a90418ee5cef5f
 
 # Every job sets timeout-minutes: GitHub's default is 6 hours, and a stalled
 # install or image pull would hold the runner that long. Each limit is several
@@ -27,11 +33,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      # Python packages at the versions of the ansible-runtime image (RUNTIME_IMAGE in ci.yml):
+      # its constraints.txt, the same ansible-core, Molecule, linters and pypsrp every
+      # consumer runs. This repo's CI never runs IN the image (it would test the baked driver).
+      - name: Read the ansible-runtime image's pins
+        timeout-minutes: 10
+        run: |
+          image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
+          [ -n "$image" ] || { echo "::error::RUNTIME_IMAGE not found in ci.yml"; exit 1; }
+          mkdir -p .cache
+          docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.13'
       - run: |
-          pip install ansible-core ansible-lint yamllint
+          pip install -c .cache/constraints.txt ansible-core ansible-lint yamllint
           ansible-galaxy collection install -r extensions/molecule/requirements.yml
       - run: yamllint .
       - run: ansible-lint
@@ -64,9 +80,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      # Python packages at the versions of the ansible-runtime image (RUNTIME_IMAGE in ci.yml):
+      # its constraints.txt, the same ansible-core, Molecule, linters and pypsrp every
+      # consumer runs. This repo's CI never runs IN the image (it would test the baked driver).
+      - name: Read the ansible-runtime image's pins
+        timeout-minutes: 10
+        run: |
+          image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
+          [ -n "$image" ] || { echo "::error::RUNTIME_IMAGE not found in ci.yml"; exit 1; }
+          mkdir -p .cache
+          docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
       - uses: ./.github/actions/setup-molecule
         with:
           collection: git_cgallagher.molecule
           requirements: extensions/molecule/requirements.yml
-          constraints: .github/ci/constraints.txt
+          constraints: .cache/constraints.txt
       - run: molecule test -s ${{ matrix.scenario }}

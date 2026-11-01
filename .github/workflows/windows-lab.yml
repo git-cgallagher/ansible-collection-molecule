@@ -65,10 +65,21 @@ jobs:
 
       # The runner's temp disk: the box (~6 GB, plus ~6 GB while unpacking)
       # and the VM disk don't fit on the ~14 GB root filesystem.
+      # Python packages at the versions of the ansible-runtime image (RUNTIME_IMAGE in ci.yml):
+      # its constraints.txt, the same ansible-core, Molecule, linters and pypsrp every
+      # consumer runs. This repo's CI never runs IN the image (it would test the baked driver).
+      - name: Read the ansible-runtime image's pins
+        timeout-minutes: 10
+        run: |
+          image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
+          [ -n "$image" ] || { echo "::error::RUNTIME_IMAGE not found in ci.yml"; exit 1; }
+          mkdir -p .cache
+          docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
       - uses: ./.github/actions/setup-molecule
         with:
           collection: git_cgallagher.molecule
           requirements: extensions/molecule/requirements.yml
+          constraints: .cache/constraints.txt
           kvm: 'true'
           lab-dir: /mnt/molecule-lab
 
