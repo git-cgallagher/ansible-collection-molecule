@@ -92,6 +92,17 @@ prebuilt images are always pulled (for `platform`, that architecture).
 directory: `$MOLECULE_LAB_DIR` (a base config can set it in `provisioner.env`), else
 `~/.cache/molecule-lab`.
 
+The driver then waits for each box's first boot (OOBE, licence rearm, reboot, WinRM reset), for up to
+`windows_vm_first_boot_timeout` seconds (1800 by default; a healthy box takes 3–10 minutes), counted
+once for all of a scenario's VMs from when they start. Each poll checks the VM first, so a VM whose
+QEMU exits, or whose guest stops (powers off, or pauses on an error), fails the run at the next poll
+rather than at the deadline. The failure message quotes the end of `<lab dir>/<platform>-qemu.log`,
+which holds what QEMU printed and how it stopped (an exit status, or the signal that killed it);
+destroy keeps it. A guest that powers itself off stays in QEMU (`-no-shutdown`), so the
+`vm-screendump` action still gets its screen; that action also prints each platform's QEMU state
+and log. `windows_vm_first_boot_retries`, the poll count before 0.4.0, still works as that many 10 s
+polls.
+
 ### Keys every platform shares: `platform_defaults`
 
 When a scenario sets `platforms`, Molecule replaces the base config's list rather than merging it, so

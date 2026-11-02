@@ -1,8 +1,9 @@
 name: Capture a windows_vm screen
 description: >-
-  Ask windows_vm platforms' QEMU monitors for a screendump each (PPM, as
-  <platform>-screen.ppm in the lab directory), for a failed run's
-  diagnostics. Never fails the job.
+  Ask windows_vm platforms' QEMU monitors for their run state and a screendump
+  each (PPM, as <platform>-screen.ppm in the lab directory), and print the end
+  of each platform's QEMU log (<platform>-qemu.log: QEMU's output and how it
+  stopped), for a failed run's diagnostics. Never fails the job.
 inputs:
   lab-dir:
     description: The lab directory (MOLECULE_LAB_DIR).
@@ -15,6 +16,9 @@ runs:
   steps:
     # nc needs -N (close on stdin EOF) and a timeout: the QEMU monitor keeps
     # the socket open, so plain `nc -U` never exits (hung a run for 30 min).
+    # The reply is captured first and judged after: under the step's pipefail,
+    # a `|| echo` on the pipeline would also fire when nc timed out after
+    # answering.
     - name: Capture the VM screens
       shell: bash
       env:
@@ -22,9 +26,21 @@ runs:
         PLATFORMS: ${{ inputs.platforms }}
       run: |
         for platform in $PLATFORMS; do
+          echo "::group::$platform"
           sock="$LAB_DIR/$platform-monitor.sock"
           if [ -S "$sock" ]; then
-            { printf 'screendump %s/%s-screen.ppm\n' "$LAB_DIR" "$platform"; sleep 3; } | timeout 20 nc -N -U "$sock" || true
+            reply=$({ printf 'info status\nscreendump %s/%s-screen.ppm\n' "$LAB_DIR" "$platform"; sleep 3; } \
+              | timeout 20 nc -N -U "$sock" 2>&1 || true)
+            status=$(printf '%s\n' "$reply" | tr -d '\r' | grep -a -o 'VM status: .*' | head -n 1 || true)
+            echo "$platform: ${status:-no answer from the monitor (QEMU gone?)}"
+          else
+            echo "$platform: no monitor socket"
           fi
+          log="$LAB_DIR/$platform-qemu.log"
+          if [ -f "$log" ]; then
+            echo "--- end of $log"
+            tail -n 40 "$log"
+          fi
+          echo "::endgroup::"
         done
         ls -la "$LAB_DIR" || true

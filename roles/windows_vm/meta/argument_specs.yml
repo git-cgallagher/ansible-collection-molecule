@@ -22,16 +22,26 @@ argument_specs:
       windows_vm_dir:
         type: path
         description:
-          - Box cache, VM disk, pidfile and QEMU monitor socket.
+          - Box cache, VM disk, pidfile, QEMU monitor socket and C(<platform>-qemu.log) (QEMU's output and how it
+            stopped; destroy keeps it).
           - Defaults to C(molecule_lab_dir) (set by the create/destroy playbooks), else C(~/.cache/molecule-lab).
       windows_vm_name_prefix:
         type: str
         default: molecule
         description: Prefix of the QEMU process name.
+      windows_vm_first_boot_timeout:
+        type: int
+        default: 1800
+        description:
+          - Seconds the box's first boot (OOBE, licence rearm, reboot, WinRM reset) may take, counted once for all
+            of a scenario's VMs from when they start; polled 10 s apart. A VM whose QEMU exits or whose guest stops
+            (powers off, pauses on an error) fails at the next poll instead.
+          - Defaults to C(windows_vm_first_boot_retries) x 10 when that is set, else 1800.
       windows_vm_first_boot_retries:
         type: int
-        default: 90
-        description: Polls (10 s apart) of the box's first boot before giving up.
+        description:
+          - Deprecated since 0.4.0 (it was the poll count); use C(windows_vm_first_boot_timeout). When set, it
+            means that many 10 s polls.
   create:
     short_description: Boot a Windows box under QEMU/KVM and append its entry to C(windows_vm_instances)
     options: *windows_vm_options

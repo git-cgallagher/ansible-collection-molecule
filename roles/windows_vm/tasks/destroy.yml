@@ -51,6 +51,8 @@
   register: windows_vm_hub_stop
   changed_when: "'stopped' in windows_vm_hub_stop.stdout"
 
+# <platform>-qemu.log stays: it records how the VM ended (diagnostics after a
+# failed run), and the next create empties it.
 - name: Remove the VM disk, pidfile and monitor socket
   ansible.builtin.file:
     path: "{{ item }}"

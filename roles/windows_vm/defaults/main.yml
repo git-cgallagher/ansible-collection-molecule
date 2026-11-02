@@ -14,6 +14,9 @@ windows_vm_name_prefix: molecule
 # the same time on one host get different hubs.
 windows_vm_scenario_key: "{{ molecule_scenario_directory | default(lookup('ansible.builtin.env', 'MOLECULE_SCENARIO_DIRECTORY'), true) }}"
 
-# Polls of the box's first boot (OOBE, licence rearm, reboot, WinRM reset),
-# 10 s apart.
-windows_vm_first_boot_retries: 90
+# Seconds the box's first boot (OOBE, licence rearm, reboot, WinRM reset) may
+# take, counted once for all of a scenario's VMs, from when they start. A
+# healthy boot takes 3-10 minutes; a VM whose QEMU exits or whose guest stops
+# fails at the next poll (10 s apart) instead. windows_vm_first_boot_retries,
+# the poll count before 0.4.0, still works: it means that many 10 s polls.
+windows_vm_first_boot_timeout: "{{ (windows_vm_first_boot_retries | int * 10) if windows_vm_first_boot_retries is defined else 1800 }}"
