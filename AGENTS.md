@@ -329,6 +329,18 @@ ansible-runtime's
   `timeout`, so a pull isn't limited there). shellcheck 0.9.0 is clean on the script and on the
   step's new lines (its two findings, the pip extra `$root[windows]` and `EXTRA`, predate 0.5.0);
   actionlint, yamllint and ansible-lint (production) pass.
+- 0.5.0 in CI and in the labs that use it (2026-11-02). Every check on PR #22's head `fe24140`
+  passed with galaxy.ansible.com mapped to 0.0.0.0, including the KVM `windows_dc` and
+  `windows_cluster` jobs. Their logs show the image's collections copied, "Nothing to do" from the
+  action's check and from Molecule's `dependency` step, and no Galaxy API call or download. PR #22
+  merged as `29152ec`, with the same tree as `fe24140`, which carries the tag. Each consumer lab
+  passed with no `galaxy.ansible.com` line in its logs:
+  - windows `domain-lab`, all six jobs: windows PR #56, merged as `2125d1d`; runs
+    41514013814 and 41521829034, the latter's gpo_backup re-run after a first-boot flake (TODO
+    below).
+  - isc `windows-dc`: isc PR #34, merged as `f28ffd7`; manual run 41524754716, by the ansible-runtime
+    maintainer.
+  ansible-runtime 1.3.0 (its PR #18, `278adc9`) pins the driver at `fe24140`.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
@@ -341,3 +353,8 @@ ansible-runtime's
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
 - Drop `windows_vm_first_boot_retries` (deprecated in 0.4.0, mapped to 10 s polls) once no consumer
   sets it; windows PR #36's `wsfc_fileserver` scenario did, at 180.
+- A guest whose own first-boot setup fails ("Windows Setup could not configure Windows to run on
+  this computer's hardware", in the screendump) keeps WinRM's port open, so `ready` waits out the
+  whole 30-minute deadline. Seen twice on 2026-11-02, in isc run 41512670995 and windows run
+  41521829034; a re-run cleared both. Logging the runner's CPU model (`lscpu`) with the lab
+  diagnostics would show whether it follows a host CPU type under `-cpu host`.
