@@ -281,6 +281,11 @@ downloading it: pin the collection in ansible-runtime's `requirements/collection
 Molecule's own `dependency` step finds everything installed and doesn't download either. Without
 `collections-image`, `requirements` install from Galaxy as before.
 
+How the image and this driver make up a collection's CI (which jobs run in the image and which on
+the runner, the pins a consumer holds, the round that follows a driver release):
+[docs/SHARED-CI.md](https://github.com/git-cgallagher/ansible-runtime/blob/main/docs/SHARED-CI.md)
+in ansible-runtime.
+
 Without the pip package, a scenario can use `driver: default` (`options: {managed: true}`) and a
 `create.yml`/`destroy.yml` that each hold one line,
 `ansible.builtin.import_playbook: git_cgallagher.molecule.create` (or `.destroy`).
