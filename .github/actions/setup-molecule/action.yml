@@ -2,16 +2,28 @@ name: Set up Molecule with the molecule-git-cgallagher driver
 description: >-
   Python, ansible-core, Molecule, the molecule-git-cgallagher driver and the
   git_cgallagher.molecule collection (both from this action's own ref, so one
-  SHA pin versions all three), plus a collection's test requirements. Exposes
-  the checkout as <namespace>.<name> for Molecule; optionally enables KVM and
-  QEMU and a lab directory on the runner's large /mnt disk for windows_vm platforms.
+  SHA pin versions all three), plus a collection's test requirements, from an
+  ansible-runtime image or from Galaxy. Exposes the checkout as
+  <namespace>.<name> for Molecule; optionally enables KVM and QEMU and a lab
+  directory on the runner's large /mnt disk for windows_vm platforms.
 inputs:
   collection:
     description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections. Empty for a standalone role.
     required: false
     default: ''
+  collections-image:
+    description: >-
+      An ansible-runtime image (the caller's RUNTIME_IMAGE, tag@sha256:digest) to take the
+      collections from instead of Galaxy. Every collection in the image except
+      git_cgallagher.molecule is copied into the first collections path (~/.ansible/collections),
+      and every ansible-galaxy call runs --offline, so `requirements` become a check: a collection
+      or version the image lacks fails the step. Nothing is downloaded from Galaxy. Empty: Galaxy.
+    required: false
+    default: ''
   requirements:
-    description: Collection requirement files to install, one per line.
+    description: >-
+      Collection requirement files, one per line: installed from Galaxy, or with
+      collections-image, checked against the image's collections.
     required: false
     default: ''
   pip:
@@ -89,12 +101,16 @@ runs:
 
     # The action's own checkout is the whole repository at the pinned ref:
     # the driver (pyproject.toml) and the collection (galaxy.yml) come from it.
+    # With collections-image the image's collections go in first: installing
+    # git_cgallagher.molecule resolves its galaxy.yml dependencies, which would
+    # otherwise come from Galaxy too. --offline turns a missing one into an error.
     - name: Install Ansible, Molecule, the driver and the collections
       shell: bash
       env:
         CORE: ${{ inputs.ansible-core }}
         CONSTRAINTS: ${{ inputs.constraints }}
         EXTRA: ${{ inputs.pip }}
+        IMAGE: ${{ inputs.collections-image }}
         KVM: ${{ inputs.kvm }}
         REQUIREMENTS: ${{ inputs.requirements }}
       run: |
@@ -105,12 +121,31 @@ runs:
         if [ -n "$CONSTRAINTS" ]; then constraints=(-c "$CONSTRAINTS"); fi
         pip install "${constraints[@]}" "$CORE" molecule "$driver" "${extra[@]}"
         molecule --version
-        ansible-galaxy collection install --force "$root"
-        while IFS= read -r req; do
-          if [ -n "$req" ]; then
-            ansible-galaxy collection install -r "$req"
+        if [ -z "$IMAGE" ]; then
+          ansible-galaxy collection install --force "$root"
+          while IFS= read -r req; do
+            if [ -n "$req" ]; then
+              ansible-galaxy collection install -r "$req"
+            fi
+          done <<< "$REQUIREMENTS"
+        else
+          # Where ansible-galaxy installs: the first collections path.
+          dest=$(python -c 'from ansible import constants as C; print(C.COLLECTIONS_PATHS[0])')
+          "$GITHUB_ACTION_PATH/image_collections.sh" "$IMAGE" "$dest"
+          if ! ansible-galaxy collection install --offline --force "$root"; then
+            echo "::error::$IMAGE lacks a collection git_cgallagher.molecule depends on (its galaxy.yml; see above)."
+            exit 1
           fi
-        done <<< "$REQUIREMENTS"
+          while IFS= read -r req; do
+            if [ -n "$req" ] && ! ansible-galaxy collection install --offline -r "$req"; then
+              echo "::error::$req needs a collection or version that $IMAGE lacks (see above)." \
+                "Pin it in ansible-runtime's requirements/collections.yml first:" \
+                "with collections-image, nothing comes from Galaxy."
+              exit 1
+            fi
+          done <<< "$REQUIREMENTS"
+        fi
+        ansible-galaxy collection list
 
     # Molecule runs the roles as <namespace>.<name>.<role>; the base config's
     # ANSIBLE_COLLECTIONS_PATH puts .molecule-collections first.

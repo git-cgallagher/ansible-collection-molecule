@@ -18,7 +18,10 @@ python3 -m venv .venv && . .venv/bin/activate
 export RUNTIME_IMAGE=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
 mkdir -p .cache && docker run --rm "$RUNTIME_IMAGE" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
 pip install -c .cache/constraints.txt -e '.[windows]' ansible-core ansible-lint yamllint
-ansible-galaxy collection install -r extensions/molecule/requirements.yml
+# CI's collections, from the image, not Galaxy: they replace any copy of the same collections
+# in ~/.ansible/collections; then check the self-tests' requirements against them, offline
+.github/actions/setup-molecule/image_collections.sh "$RUNTIME_IMAGE" ~/.ansible/collections
+ansible-galaxy collection install --offline -r extensions/molecule/requirements.yml
 mkdir -p .molecule-collections/ansible_collections/git_cgallagher && ln -sfn ../../.. .molecule-collections/ansible_collections/git_cgallagher/molecule
 yamllint . && ansible-lint               # production profile, must stay at 0
 molecule test -s docker_smoke            # from the repo root
@@ -65,6 +68,15 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   windows_vm's `ready`), then WinRM. rc 10 (QEMU gone), 11 (guest stopped) and 12 (deadline) end the
   until loop at once; 0 is ready; 3, or a hung attempt's 124, polls again. `.github/ci/windows_vm_lifecycle.sh`
   (windows-lab's `lifecycle` job) checks each of those answers but "ready" against a disk-less QEMU.
+- **setup-molecule's collections (0.5.0).** With `collections-image`,
+  `.github/actions/setup-molecule/image_collections.sh` asks the image for its `ansible_collections`
+  directory (`ansible_collections.__path__` in the image's Python: ansible-runtime installs them in
+  site-packages, whose path moves with its Python version) and copies it out with `docker create` +
+  `docker cp`, minus `git_cgallagher.molecule`, into the first collections path (where
+  `ansible-galaxy` installs), each collection replacing any older copy. Every `ansible-galaxy` call
+  after that is `--offline`: the action's own collection, whose `galaxy.yml` dependencies must be in
+  the image, and each `requirements` file, which then only checks. This repo's jobs that use the
+  action map galaxy.ansible.com to 0.0.0.0 first, so anything that still tries to download fails.
 - Platform key names for `docker` follow molecule-plugins' docker driver so consumers' existing
   `platforms:` carry over. Keep that true when adding keys.
 - **The Windows lab roles follow Ansible's module principles (owner rule, 2026-11-01).** A task
@@ -185,8 +197,24 @@ Which commit gets the tag:
   powers itself off stays, paused in the "shutdown" state.
 - **Jinja's `'\n'` stays a literal backslash-n in an Ansible template** (ansible-core 2.21.5, seen in
   the first-boot failure message). In a folded block (`>-`), a blank line is what makes a newline.
+- **Installing this collection from a checkout downloads its dependencies.** `ansible-galaxy
+  collection install --force <checkout>` resolves `galaxy.yml`'s ansible.windows, microsoft.ad and
+  community.docker (plus its community.library_inventory_filtering_v1) from Galaxy unless they're
+  installed already: in the consumers' lab logs those were the first four Galaxy downloads, before any
+  `requirements` file. Hence 0.5.0 copies the image's collections first and installs with `--offline`.
+- **ansible-galaxy only contacts Galaxy for what isn't installed** (ansible-core 2.21.5). A
+  requirement an installed collection satisfies, in any configured path or on the Python path, gives
+  "Nothing to do" without opening a socket: `install_collections` returns before resolving, and the
+  resolver skips the API for installed candidates (`dependency_resolution/providers.py`). That's why
+  Molecule's `dependency` step and prerun download nothing once setup-molecule has installed
+  everything. An unsatisfied one downloads, unless `--offline`, which fails it instead ("Could not
+  satisfy the following requirements"). Checked with `--network none` (2026-11-02).
+- **`ansible-galaxy collection list` lists `ansible._protomatter`**, ansible-core's internal
+  collection under `ansible/_internal/ansible_collections`, so it's no way to find an image's
+  collection directory. `image_collections.sh` asks Python for `ansible_collections.__path__`, which
+  holds only the directories on `sys.path`.
 
-## Verified (2026-10-31 to 2026-11-01)
+## Verified (2026-10-31 to 2026-11-02)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -269,6 +297,26 @@ Which commit gets the tag:
   monitor socket" for a VM that never existed, and "no answer from the monitor" after a SIGKILL,
   exiting 0 each time. yamllint, ansible-lint (production), actionlint, shellcheck and sanity pass
   (ansible-core 2.21.5).
+- 0.5.0, before CI: the install step, extracted verbatim from `action.yml` and run as GitHub runs a
+  step (`bash -eo pipefail`) in an `ubuntu:24.04` container (Python 3.12, the image's constraints,
+  so ansible-core 2.21.5 and Molecule 26.10.0) with the Docker socket mounted and galaxy.ansible.com
+  mapped to 0.0.0.0, against `ansible-runtime:1.1.0-ci@sha256:cc04da98…` (the consumers' ref shape)
+  and `1.2.0-ci@sha256:209b64e1…`. It copies the image's seven collections (site-packages under
+  Python 3.13, found by asking the image), skips the image's `git_cgallagher.molecule` 0.3.2,
+  installs the checkout's `--offline`, and `extensions/molecule/requirements.yml` is "Nothing to do":
+  rc 0, no Galaxy line in the log. A requirements file naming community.crypto, and one asking for
+  community.docker >=6.0.0 (the image has 5.4.0), fail with ansible-galaxy's "Could not satisfy" and
+  the action's error, without contacting Galaxy. `python:3.13-slim` and `ubuntu:24.04` as the image
+  fail with "no ansible_collections directory on its Python path". A stale community.docker 4.0.0
+  with an extra file in `~/.ansible/collections` is replaced (the file is gone), and a second run
+  leaves the tree byte-identical. Without `collections-image` the step takes the old branch: four
+  Galaxy downloads, rc 0. With no network at all (`--network none`), ansible-galaxy said "Nothing to
+  do" for satisfied requirements with and without `--offline`, and `--offline` failed unsatisfied
+  ones (missing collection, version too new, exact pin mismatch, a missing dependency of the
+  checkout) without trying the network. `image_collections.sh` also runs on macOS (BSD tools; no
+  `timeout`, so a pull isn't limited there). shellcheck 0.9.0 is clean on the script and on the
+  step's new lines (its two findings, the pip extra `$root[windows]` and `EXTRA`, predate 0.5.0);
+  actionlint, yamllint and ansible-lint (production) pass.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 

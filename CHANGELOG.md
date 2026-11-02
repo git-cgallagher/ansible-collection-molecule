@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0 (2026-11-02)
+
+setup-molecule can take the collections from an ansible-runtime image instead of Galaxy, so a job
+that already pulls the image downloads no collection at run time. On 2026-11-02 Galaxy cost two
+windows lab jobs before any test ran: ansible-collection-windows PR #55 ("Failed to download
+collection tar ... The handshake operation timed out", installing community.docker 5.4.0) and PR #54
+("Missing expected 'results' in ansible-galaxy cache"). The labs were downloading the very versions
+the image they had just pulled already contains.
+
+- **New input `collections-image`** (an image ref; pass the caller's `RUNTIME_IMAGE`). The action
+  asks the image where its collections are (the `ansible_collections` directory on its Python path,
+  which moves with the image's Python version) and copies them into the first collections path,
+  `~/.ansible/collections`, with `docker create` and `docker cp`. `git_cgallagher.molecule` is the
+  exception: it still comes from the action's own ref. Every `ansible-galaxy` call then runs
+  `--offline` (`.github/actions/setup-molecule/image_collections.sh`).
+- **`requirements` become a check** when `collections-image` is set: a file that names a collection
+  the image lacks, or a version it doesn't have, fails the step and says to pin it in the image
+  first. Nothing falls back to Galaxy. Without `collections-image`, `requirements` still install
+  from Galaxy.
+- The order matters: installing `git_cgallagher.molecule` resolves its `galaxy.yml` dependencies,
+  and those (ansible.windows, microsoft.ad, community.docker and its
+  community.library_inventory_filtering_v1) were a lab's first four Galaxy downloads. The image's
+  collections now go in before it.
+- CI: every job here that sets up Molecule (lint, the Docker and Windows scenarios, the `windows_vm`
+  lifecycle job) takes its collections from `RUNTIME_IMAGE` and runs with galaxy.ansible.com
+  unreachable (an `/etc/hosts` entry), so a download that is still left anywhere in it fails the job.
+
 ## 0.4.0 (2026-11-02)
 
 A `windows_vm` whose QEMU dies, or whose guest stops, now fails the run at the next poll and says
