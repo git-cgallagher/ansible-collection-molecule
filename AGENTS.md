@@ -355,6 +355,7 @@ ansible-runtime's
   sets it; windows PR #36's `wsfc_fileserver` scenario did, at 180.
 - A guest whose own first-boot setup fails ("Windows Setup could not configure Windows to run on
   this computer's hardware", in the screendump) keeps WinRM's port open, so `ready` waits out the
-  whole 30-minute deadline. Seen twice on 2026-11-02, in isc run 41512670995 and windows run
-  41521829034; a re-run cleared both. Logging the runner's CPU model (`lscpu`) with the lab
-  diagnostics would show whether it follows a host CPU type under `-cpu host`.
+  whole 30-minute deadline. Seen three times on 2026-11-02, in windows runs 41464369281 and
+  41521829034 and isc run 41512670995; a re-run cleared each. Logging the runner's CPU model
+  (`lscpu`) with the lab diagnostics would show whether it follows a host CPU type under
+  `-cpu host`; retrying such a VM's first boot once, on a fresh overlay, is another option.
