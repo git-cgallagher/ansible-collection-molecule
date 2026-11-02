@@ -75,9 +75,9 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   `docker cp`, minus `git_cgallagher.molecule`, into the first collections path (where
   `ansible-galaxy` installs), each collection replacing any older copy. It refuses an image with no
   such directory or more than one, and one with other `git_cgallagher.*` collections (the runtime
-  target: a caller's mistake, since the `-ci` target has none). ansible-runtime's maintainer is
-  adding the same contract to its smoke test (one directory, every pinned collection in it;
-  agreed 2026-11-02), so an image change that would break the step fails the image build first.
+  target: a caller's mistake, since the `-ci` target has none). ansible-runtime's `smoke.sh`
+  checks the same contract (one directory holding every pinned collection; ansible-runtime PR #16,
+  `95ed629`), so an image change that would break the step fails the image build first.
   Every `ansible-galaxy` call
   after that is `--offline`: the action's own collection, whose `galaxy.yml` dependencies must be in
   the image, and each `requirements` file, which then only checks. This repo's jobs that use the
