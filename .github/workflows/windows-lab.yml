@@ -11,6 +11,10 @@ name: windows-lab
 #                    files/first_boot_poll.py, against a disk-less QEMU
 #                    (.github/ci/windows_vm_lifecycle.sh).
 #
+# Every job takes its collections from the ansible-runtime image (RUNTIME_IMAGE
+# in ci.yml, through setup-molecule's collections-image) and runs with Galaxy
+# unreachable, so nothing in it can download a collection.
+#
 # Not a required check: it is path-filtered (a required check that doesn't
 # run blocks merges forever) and depends on a third-party box download.
 
@@ -29,7 +33,7 @@ on:
       - .github/actions/**
       - .github/ci/windows_vm_lifecycle.sh
       - .github/workflows/windows-lab.yml
-  # Weekly: catches box, collection and runner-image changes.
+  # Weekly: catches box and runner-image changes (collections change only with RUNTIME_IMAGE).
   schedule:
     - cron: '0 15 * * 2'
   workflow_dispatch:
@@ -69,19 +73,26 @@ jobs:
 
       # The runner's temp disk: the box (~6 GB, plus ~6 GB while unpacking)
       # and the VM disk don't fit on the ~14 GB root filesystem.
-      # Python packages at the versions of the ansible-runtime image (RUNTIME_IMAGE in ci.yml):
-      # its constraints.txt, the same ansible-core, Molecule, linters and pypsrp every
-      # consumer runs. This repo's CI never runs IN the image (it would test the baked driver).
+      # Python packages and collections at the versions of the ansible-runtime image (RUNTIME_IMAGE
+      # in ci.yml): its constraints.txt and its collections, the same ansible-core, Molecule, linters,
+      # pypsrp and collections every consumer runs. This repo's CI never runs IN the image (it would
+      # test the baked driver). requirements.yml is then a check against the image's collections.
       - name: Read the ansible-runtime image's pins
+        id: runtime
         timeout-minutes: 10
         run: |
           image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
           [ -n "$image" ] || { echo "::error::RUNTIME_IMAGE not found in ci.yml"; exit 1; }
+          echo "image=$image" >> "$GITHUB_OUTPUT"
           mkdir -p .cache
           docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
+      - name: Block Galaxy
+        run: |
+          printf '0.0.0.0 galaxy.ansible.com\n:: galaxy.ansible.com\n' | sudo tee -a /etc/hosts
       - uses: ./.github/actions/setup-molecule
         with:
           collection: git_cgallagher.molecule
+          collections-image: ${{ steps.runtime.outputs.image }}
           requirements: extensions/molecule/requirements.yml
           constraints: .cache/constraints.txt
           kvm: 'true'
@@ -138,15 +149,21 @@ jobs:
 
       # QEMU and pypsrp, as for the scenarios.
       - name: Read the ansible-runtime image's pins
+        id: runtime
         timeout-minutes: 10
         run: |
           image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ci.yml)
           [ -n "$image" ] || { echo "::error::RUNTIME_IMAGE not found in ci.yml"; exit 1; }
+          echo "image=$image" >> "$GITHUB_OUTPUT"
           mkdir -p .cache
           docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
+      - name: Block Galaxy
+        run: |
+          printf '0.0.0.0 galaxy.ansible.com\n:: galaxy.ansible.com\n' | sudo tee -a /etc/hosts
       - uses: ./.github/actions/setup-molecule
         with:
           collection: git_cgallagher.molecule
+          collections-image: ${{ steps.runtime.outputs.image }}
           requirements: extensions/molecule/requirements.yml
           constraints: .cache/constraints.txt
           kvm: 'true'

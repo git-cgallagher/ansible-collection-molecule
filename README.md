@@ -22,7 +22,8 @@ only describes its platforms; the driver creates and destroys them.
   any test VM (`ad_forest` runs it first; see [Quieting a test VM](#quieting-a-test-vm)).
 - **`setup-molecule`**, a composite GitHub Action that installs Python, ansible-core,
   Molecule, the driver and the collection from one pinned ref (and KVM/QEMU when asked),
-  optionally under the repo's pip constraints file.
+  optionally under the repo's pip constraints file, with the other collections copied from an
+  ansible-runtime image instead of Galaxy.
 
 ## A scenario
 
@@ -228,20 +229,21 @@ step.
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.2"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.5.0"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.2
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.5.0
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.2
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.0
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
+    # collections-image: <image>          # the collections from this image, never Galaxy (below)
     # constraints: .cache/constraints.txt  # pip -c, e.g. the ansible-runtime image's pins (below)
     # pip: ansible-lint                          # extra packages
     # kvm: 'true'          # windows_vm platforms (apt-get time-limited: 3 min update, 8 min install)
@@ -250,10 +252,34 @@ In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
   working-directory: roles/kea_dhcp
 ```
 
-The `git_cgallagher.*` collections take `constraints` from the
+The `git_cgallagher.*` collections take their Python packages and their collections from the
 [ansible-runtime](https://github.com/git-cgallagher/ansible-runtime) image their CI pins, so a lab
-runs the same versions as their jobs in the image. Read it in a step before this one:
-`docker run --rm "$RUNTIME_IMAGE" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt`.
+runs the same versions as their jobs in the image and never downloads a collection from Galaxy:
+
+```yaml
+- name: Read the ansible-runtime image's pins
+  id: runtime
+  run: |
+    image=$(sed -n 's/^ *RUNTIME_IMAGE: //p' .github/workflows/ansible-test.yml)
+    echo "image=$image" >> "$GITHUB_OUTPUT"
+    mkdir -p .cache
+    docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.0
+  with:
+    collection: git_cgallagher.isc
+    collections-image: ${{ steps.runtime.outputs.image }}
+    requirements: requirements.yml   # now a check against the image's collections
+    constraints: .cache/constraints.txt
+```
+
+With `collections-image` (a `-ci` image: the runtime target, which carries the released
+`git_cgallagher.*` collections, is refused), the action copies every collection in the image except
+`git_cgallagher.molecule` (that one still comes from the action's own ref) into
+`~/.ansible/collections`, and runs `ansible-galaxy` with `--offline`. A `requirements` file that
+names a collection the image lacks, or a version it doesn't have, then fails the step instead of
+downloading it: pin the collection in ansible-runtime's `requirements/collections.yml` first.
+Molecule's own `dependency` step finds everything installed and doesn't download either. Without
+`collections-image`, `requirements` install from Galaxy as before.
 
 Without the pip package, a scenario can use `driver: default` (`options: {managed: true}`) and a
 `create.yml`/`destroy.yml` that each hold one line,
