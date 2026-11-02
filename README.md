@@ -8,7 +8,8 @@ only describes its platforms; the driver creates and destroys them.
   or `destroy.yml`. (It can't be called plain `molecule`: Molecule only accepts
   third-party driver names starting `molecule-` or `custom-`, and the pip package
   `molecule` is Molecule itself.)
-- **`git_cgallagher.molecule`**, the collection that does the work (Galaxy/git).
+- **`git_cgallagher.molecule`**, the collection that does the work (from git: the action's pinned
+  commit or a tag; it isn't on Galaxy).
   It dispatches each platform by `kind` to the role of that name:
 
   | kind | role | creates | needs |

@@ -5,7 +5,7 @@ Read `~/Code/AGENTS.md` first. This repo ships three things from one tag:
 | Path | What | Ships via |
 |---|---|---|
 | `molecule_git_cgallagher/`, `pyproject.toml` | the `molecule-git-cgallagher` Molecule driver: name, schema, bundled create/destroy that import the collection's playbooks | pip (git URL; PyPI later) |
-| `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, roles `ad_forest` and `quiet_vm` | Galaxy / git |
+| `playbooks/`, `roles/`, `galaxy.yml` | collection `git_cgallagher.molecule`: create/destroy dispatch, kinds `docker` and `windows_vm`, roles `ad_forest` and `quiet_vm` | git (the action's commit, or a tag); not Galaxy |
 | `.github/actions/setup-molecule`, `vm-screendump` | composite actions the consumer repos pin by SHA | GitHub |
 | `extensions/molecule/` | self-tests: `docker_smoke`, `docker_full` (any Docker host), `windows_dc` and `windows_cluster` (KVM only); `config.yml` is their shared base config, `tasks/` their shared verify tasks | not shipped |
 | `docs/MIGRATION.md` | the migration record: isc (2.0.1), orchestration, windows (formerly gpo) and aws, all on the driver | — |
@@ -98,8 +98,10 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
 
 Merge to `main` with `galaxy.yml` and `pyproject.toml` versions bumped together and a CHANGELOG entry,
 then push an annotated tag `vX.Y.Z`. Consumers pin the setup-molecule action's commit SHA (with a
-`# vX.Y.Z` comment), which installs the driver and the collection from that same commit. Galaxy and
-PyPI publishing aren't set up yet (TODO below).
+`# vX.Y.Z` comment), which installs the driver and the collection from that same commit. The
+collection is **not published to Galaxy** (Chris, 2026-11-02): it's test tooling, installed from the
+action's commit or a git tag. The collections that do go to Galaxy are windows, aws, orchestration,
+isc and vmware. PyPI publishing for the driver isn't set up (TODO below).
 
 Which commit gets the tag:
 
@@ -348,8 +350,8 @@ ansible-runtime's
 
 - Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
   extra data disks per VM: not supported yet.
-- Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
-  collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
+- PyPI publishing for the driver (trusted publishing). Optional while consumers pin the action SHA.
+  (Galaxy is out: the collection stays off it, see Releasing.)
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
 - Drop `windows_vm_first_boot_retries` (deprecated in 0.4.0, mapped to 10 s polls) once no consumer
   sets it; windows PR #36's `wsfc_fileserver` scenario did, at 180.
