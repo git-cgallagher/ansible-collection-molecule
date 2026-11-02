@@ -141,4 +141,5 @@ It has been a required check there since 2026-11-01 (aws PR #5).
 4. ✅ windows PR #23, after its PRs 20 (wsfc) and 22 (IIS modules) (2026-11-01).
 5. ✅ aws PR #4, its first scenario (2026-11-01).
 6. Galaxy and PyPI publishing stay optional: consumers pin the action's SHA, which installs the
-   driver and the collection from that same commit.
+   driver and the collection from that same commit. (Galaxy was ruled out on 2026-11-02: the
+   collection stays off it.)
