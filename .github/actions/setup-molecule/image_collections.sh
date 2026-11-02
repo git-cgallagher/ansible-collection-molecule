@@ -43,6 +43,19 @@ trap 'docker rm "$cid" >/dev/null; rm -rf "$tmp"' EXIT
 docker cp "$cid:$src/." "$tmp/"
 # During a driver round the action's own ref is newer than the image's copy.
 rm -rf "$tmp/git_cgallagher/molecule" "$tmp"/git_cgallagher.molecule-*.info
+# The -ci target has no other git_cgallagher collection. One here means the caller passed the
+# runtime target, whose released copies would sit next to the checkout under test: refuse.
+others=()
+for path in "$tmp"/git_cgallagher/*/; do
+  if [ -d "$path" ]; then
+    path=${path%/}
+    others+=("git_cgallagher.${path##*/}")
+  fi
+done
+if [ "${#others[@]}" -gt 0 ]; then
+  echo "::error::$image has ${others[*]} besides git_cgallagher.molecule: that's the runtime target. Use the -ci image."
+  exit 1
+fi
 
 # Each collection (<namespace>/<name>) and its install record (<namespace>.<name>-<version>.info)
 # replaces any copy already in DEST, so no stale file survives.

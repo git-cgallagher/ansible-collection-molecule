@@ -272,7 +272,8 @@ runs the same versions as their jobs in the image and never downloads a collecti
     constraints: .cache/constraints.txt
 ```
 
-With `collections-image`, the action copies every collection in the image except
+With `collections-image` (a `-ci` image: the runtime target, which carries the released
+`git_cgallagher.*` collections, is refused), the action copies every collection in the image except
 `git_cgallagher.molecule` (that one still comes from the action's own ref) into
 `~/.ansible/collections`, and runs `ansible-galaxy` with `--offline`. A `requirements` file that
 names a collection the image lacks, or a version it doesn't have, then fails the step instead of

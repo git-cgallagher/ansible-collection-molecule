@@ -14,7 +14,10 @@ the image they had just pulled already contains.
   which moves with the image's Python version) and copies them into the first collections path,
   `~/.ansible/collections`, with `docker create` and `docker cp`. `git_cgallagher.molecule` is the
   exception: it still comes from the action's own ref. Every `ansible-galaxy` call then runs
-  `--offline` (`.github/actions/setup-molecule/image_collections.sh`).
+  `--offline` (`.github/actions/setup-molecule/image_collections.sh`). The image must be a `-ci`
+  one: an image with other `git_cgallagher.*` collections (the runtime target, whose released
+  copies would sit next to the checkout under test) is refused, as is one with no
+  `ansible_collections` directory on its Python path, or more than one.
 - **`requirements` become a check** when `collections-image` is set: a file that names a collection
   the image lacks, or a version it doesn't have, fails the step and says to pin it in the image
   first. Nothing falls back to Galaxy. Without `collections-image`, `requirements` still install

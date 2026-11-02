@@ -73,7 +73,12 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   directory (`ansible_collections.__path__` in the image's Python: ansible-runtime installs them in
   site-packages, whose path moves with its Python version) and copies it out with `docker create` +
   `docker cp`, minus `git_cgallagher.molecule`, into the first collections path (where
-  `ansible-galaxy` installs), each collection replacing any older copy. Every `ansible-galaxy` call
+  `ansible-galaxy` installs), each collection replacing any older copy. It refuses an image with no
+  such directory or more than one, and one with other `git_cgallagher.*` collections (the runtime
+  target: a caller's mistake, since the `-ci` target has none). ansible-runtime's maintainer is
+  adding the same contract to its smoke test (one directory, every pinned collection in it;
+  agreed 2026-11-02), so an image change that would break the step fails the image build first.
+  Every `ansible-galaxy` call
   after that is `--offline`: the action's own collection, whose `galaxy.yml` dependencies must be in
   the image, and each `requirements` file, which then only checks. This repo's jobs that use the
   action map galaxy.ansible.com to 0.0.0.0 first, so anything that still tries to download fails.
@@ -307,7 +312,9 @@ Which commit gets the tag:
   rc 0, no Galaxy line in the log. A requirements file naming community.crypto, and one asking for
   community.docker >=6.0.0 (the image has 5.4.0), fail with ansible-galaxy's "Could not satisfy" and
   the action's error, without contacting Galaxy. `python:3.13-slim` and `ubuntu:24.04` as the image
-  fail with "no ansible_collections directory on its Python path". A stale community.docker 4.0.0
+  fail with "no ansible_collections directory on its Python path"; the runtime target
+  (`ansible-runtime:1.2.0@sha256:e64b914a…`) fails naming its five other `git_cgallagher.*`
+  collections, before anything is copied. A stale community.docker 4.0.0
   with an extra file in `~/.ansible/collections` is replaced (the file is gone), and a second run
   leaves the tree byte-identical. Without `collections-image` the step takes the old branch: four
   Galaxy downloads, rc 0. With no network at all (`--network none`), ansible-galaxy said "Nothing to
