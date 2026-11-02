@@ -56,6 +56,15 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   `ready` waits for the first boot, then `templates/configure_lab_nics.ps1.j2` (over PSRP, in a fresh
   process) renames the NICs, sets the static addresses and the Private profile, and turns off DNS
   registration on `management`.
+- **windows_vm lifecycle (0.4.0).** `create` starts QEMU through `files/qemu_supervisor.py`, with
+  `-no-shutdown`: QEMU runs in the foreground of a detached supervisor that writes QEMU's output, then
+  how it stopped, to `<platform>-qemu.log`, and the call returns once QEMU's pidfile and monitor socket
+  exist (or fails with the log). `ready`'s first-boot poll is `files/first_boot_poll.py`, a fresh
+  process per attempt that checks, in order: QEMU alive (its pidfile), the run state (`info status` on
+  the monitor), the scenario's deadline (`windows_vm_first_boot_timeout`, started once by the first
+  windows_vm's `ready`), then WinRM. rc 10 (QEMU gone), 11 (guest stopped) and 12 (deadline) end the
+  until loop at once; 0 is ready; 3, or a hung attempt's 124, polls again. `.github/ci/windows_vm_lifecycle.sh`
+  (windows-lab's `lifecycle` job) checks each of those answers but "ready" against a disk-less QEMU.
 - Platform key names for `docker` follow molecule-plugins' docker driver so consumers' existing
   `platforms:` carry over. Keep that true when adding keys.
 - **The Windows lab roles follow Ansible's module principles (owner rule, 2026-11-01).** A task
@@ -90,15 +99,16 @@ Which commit gets the tag:
   deletion and force-push blocked, PR required with 0 approvals, and these checks required (GitHub
   Actions, integration `15368`): `lint`, `sanity (stable-2.18)`, `sanity (stable-2.19)`,
   `sanity (stable-2.20)`, `sanity (stable-2.21)`, `molecule docker_smoke`, `molecule docker_full`.
-  Not required, on purpose: the two `windows-lab`
-  jobs (path-filtered, and they depend on a third-party box download). Still merge only when those
+  Not required, on purpose: the `windows-lab`
+  jobs (path-filtered, and the scenario jobs depend on a third-party box download). Still merge only when those
   are green too: merges are by hand, and repo auto-merge is off.
 - Secret scanning + push protection, Dependabot alerts + security updates, private vulnerability
   reporting (`SECURITY.md`), CodeQL default setup (`python`, `actions`), delete branch on merge;
   wiki and projects off. Actions are SHA-pinned; `.github/dependabot.yml` keeps them current.
 - Every CI job sets `timeout-minutes` (2026-11-01): GitHub's default is 6 hours, and a stalled
   install would hold the runner that long. `ci.yml`'s jobs get 15 (30 for Molecule), several times
-  their slowest green run; `windows-lab` keeps 120. A new job needs one too.
+  their slowest green run; `windows-lab`'s scenario jobs keep 120 and its `lifecycle` job gets 15. A
+  new job needs one too.
 - Pushes go over SSH (`git@github.com:`): the `gh` token has no `workflow` scope, so HTTPS pushes
   that touch `.github/workflows/` are refused.
 
@@ -164,6 +174,17 @@ Which commit gets the tag:
 - **`platform_defaults` can't hold `name`, `groups` or `children`.** Molecule builds the inventory
   (and `molecule list`) from the platform entries as written, before the driver merges anything, so
   defaults for those would reach the kinds but not the inventory. `create.yml` refuses them.
+- **QEMU's `-daemonize` discards its output and exit status.** Once detached it points stdout and
+  stderr at /dev/null, and nothing waits for it, so a VM whose QEMU vanished during first boot left
+  nothing to say why. It happened in the windows repo's three-VM `wsfc_fileserver` lab on 2 of about 9
+  runs (windows PR #36: dc01 in run 41334289914, node1 in run 41364643685), and wasn't OOM. Hence the
+  supervisor (0.4.0, issue #13). Don't add `-daemonize` back: QEMU would leave the supervisor, which
+  would then log an exit that never happened.
+- **A kill still ends QEMU under `-no-shutdown`.** A host signal overrides the shutdown action (QEMU's
+  `qemu_system_killed`), so destroy's SIGTERM works; the lifecycle test checks it. Only a guest that
+  powers itself off stays, paused in the "shutdown" state.
+- **Jinja's `'\n'` stays a literal backslash-n in an Ansible template** (ansible-core 2.21.5, seen in
+  the first-boot failure message). In a folded block (`>-`), a blank line is what makes a newline.
 
 ## Verified (2026-10-31 to 2026-11-01)
 
@@ -237,7 +258,19 @@ Which commit gets the tag:
   `ssm_parameter`, passes locally and in CI inside the ansible-runtime image (`0.2.1-ci`), with two
   docker platforms on one network from `platform_defaults` (`docker_networks` + `networks`) and moto
   keeping its own entrypoint through `override_command: false`.
-- **Not verified yet:** lab networks with more than two VMs or more than one network per VM.
+- 0.4.0, before CI: `.github/ci/windows_vm_lifecycle.sh` passes against QEMU 8.2.2 (Ubuntu 24.04's,
+  in a container on the Mac, so TCG). A bad option fails the supervisor with QEMU's own message and
+  "exited with status 1". A running VM polls 3, `stop` 11 ("paused"), the deadline 12 ("QEMU status:
+  running; WinRM port 1 is closed"). SIGTERM ends QEMU under `-no-shutdown` ("terminating on signal
+  15", exit 0) and the next poll says 10; SIGKILL is logged as "killed by signal 9 (SIGKILL)". The
+  failure message renders for rc 10, 11, 12 and 124, and passes cleanly on 0; the old poll count maps
+  to seconds (120 → 1200). `vm-screendump`'s script, run as GitHub runs it (`bash -eo pipefail`)
+  against that QEMU, prints "VM status: running" and the log (QEMU's own warnings included), "no
+  monitor socket" for a VM that never existed, and "no answer from the monitor" after a SIGKILL,
+  exiting 0 each time. yamllint, ansible-lint (production), actionlint, shellcheck and sanity pass
+  (ansible-core 2.21.5).
+- **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
+  guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
 ## TODO
 
@@ -246,3 +279,5 @@ Which commit gets the tag:
 - Galaxy publishing (`GALAXY_API_KEY` in a main-only `galaxy` environment, as in the other
   collections) and PyPI (trusted publishing). Optional while consumers pin the action SHA.
 - `molecule reset` support (remove containers/networks labelled `owner=molecule`).
+- Drop `windows_vm_first_boot_retries` (deprecated in 0.4.0, mapped to 10 s polls) once no consumer
+  sets it; windows PR #36's `wsfc_fileserver` scenario did, at 180.

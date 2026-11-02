@@ -1,6 +1,6 @@
 namespace: git_cgallagher
 name: molecule
-version: 0.3.2
+version: 0.4.0
 readme: README.md
 authors:
   - Chris Gallagher (@git-cgallagher)

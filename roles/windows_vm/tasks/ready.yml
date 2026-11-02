@@ -3,18 +3,29 @@
 # Runs once every platform has been created, so the VMs boot side by side.
 - name: Work out paths
   ansible.builtin.set_fact:
+    windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
     windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    windows_vm_qemu_log: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qemu.log"
 
 - name: Work out the NICs
   ansible.builtin.include_tasks: lab_nics.yml
 
+# Set by the scenario's first windows_vm, so its VMs share one budget however
+# many there are.
+- name: Start the first-boot clock
+  ansible.builtin.set_fact:
+    windows_vm_first_boot_deadline: "{{ now().timestamp() + windows_vm_first_boot_timeout | int }}"
+  when: windows_vm_first_boot_deadline is not defined
+
 # The box's first boot runs OOBE, rearms the evaluation licence, reboots,
 # then recreates the WinRM listeners and finally deletes C:\temp\setup.ps1.
 # WinRM answers *during* that sequence, so "port open" isn't "ready": poll
-# the marker from a fresh process each time, which a mid-poll reboot can't
-# break the way it would break an Ansible connection. The per-attempt
-# timeout matters: a call caught by that reboot can hang forever on a
-# half-open slirp connection (it hung one CI run for 40 minutes).
+# the marker from a fresh process each time (files/first_boot_poll.py), which
+# a mid-poll reboot can't break the way it would break an Ansible connection.
+# The per-attempt timeout matters: a call caught by that reboot can hang
+# forever on a half-open slirp connection (it hung one CI run for 40 minutes).
+# Each poll checks the VM first, so a QEMU that exited (rc 10), a guest that
+# stopped (11) or the deadline (12) ends the wait at once.
 - name: Wait for the box's first boot to finish (OOBE, rearm reboot, WinRM reset)
   ansible.builtin.command:
     expand_argument_vars: false
@@ -24,34 +35,54 @@
       - timeout
       - '40'
       - "{{ ansible_playbook_python }}"
-      - -c
-      - |
-        import sys
-        from pypsrp.client import Client
-        client = Client(sys.argv[1], port=int(sys.argv[2]), username=sys.argv[3], password=sys.argv[4],
-                        ssl=False, auth="negotiate", connection_timeout=10)
-        out, _, _ = client.execute_ps("if (Test-Path -LiteralPath 'C:\\temp\\setup.ps1') { 'busy' } else { 'ready' }")
-        sys.exit(0 if out.strip() == "ready" else 3)
-      - 127.0.0.1
-      - "{{ molecule_platform.winrm_port }}"
-      - "{{ molecule_platform.box_user }}"
-      - "{{ molecule_platform.box_password }}"
+      - "{{ role_path }}/files/first_boot_poll.py"
+      - --host=127.0.0.1
+      - --port={{ molecule_platform.winrm_port }}
+      - --user={{ molecule_platform.box_user }}
+      - --password={{ molecule_platform.box_password }}
+      - --pidfile={{ windows_vm_pidfile }}
+      - --monitor={{ windows_vm_monitor }}
+      - --deadline={{ windows_vm_first_boot_deadline }}
   register: windows_vm_first_boot
-  until: windows_vm_first_boot.rc == 0
-  retries: "{{ windows_vm_first_boot_retries }}"
+  until: windows_vm_first_boot.rc in [0, 10, 11, 12]
+  # A ceiling only: the deadline (rc 12) ends the wait first.
+  retries: "{{ (windows_vm_first_boot_timeout | int // 10) + 10 }}"
   delay: 10
   failed_when: false
   changed_when: false
+
+- name: Read the end of the QEMU log
+  when: windows_vm_first_boot.rc != 0
+  ansible.builtin.command:
+    expand_argument_vars: false
+    argv: [tail, -n, '20', "{{ windows_vm_qemu_log }}"]
+  register: windows_vm_qemu_tail
+  changed_when: false
+  failed_when: false
 
 - name: Require the first boot to have finished
   ansible.builtin.assert:
     that: windows_vm_first_boot.rc == 0
     fail_msg: >-
-      {{ molecule_platform.name }} didn't finish its first boot after {{ windows_vm_first_boot_retries }} polls (last attempt rc
-      {{ windows_vm_first_boot.rc }}{{ ' = timed out' if windows_vm_first_boot.rc == 124 else '' }}:
-      {{ windows_vm_first_boot.stderr | default('') | truncate(300) }}).
-      The monitor socket {{ windows_vm_monitor }} can take a screendump of where it stopped.
+      {{ molecule_platform.name }} didn't finish its first boot: {{ windows_vm_first_boot_why }}.
+      {{ 'Its QEMU is gone, so there is no screendump.' if windows_vm_first_boot_rc | int == 10
+         else 'The monitor socket ' ~ windows_vm_monitor ~ ' can take a screendump of where it stopped.' }}
+      Last lines of {{ windows_vm_qemu_log }}:
+
+      {{ windows_vm_qemu_tail.stdout | default('') }}
     quiet: true
+  vars:
+    windows_vm_first_boot_rc: "{{ windows_vm_first_boot.rc | default(-1) }}"
+    windows_vm_first_boot_output: >-
+      {{ ((windows_vm_first_boot.stdout | default('')) ~ ' ' ~ (windows_vm_first_boot.stderr | default(''))) | trim | truncate(300) }}
+    windows_vm_first_boot_why: >-
+      {{ 'its QEMU process exited (the log below says how)' if windows_vm_first_boot_rc | int == 10
+         else ('the guest stopped; QEMU reports "' ~ (windows_vm_first_boot.stdout | default('') | trim) ~ '"')
+              if windows_vm_first_boot_rc | int == 11
+         else ("it wasn't ready " ~ (windows_vm_first_boot_timeout | int // 60) ~ ' minutes after the VMs started ('
+               ~ windows_vm_first_boot_output ~ ')') if windows_vm_first_boot_rc | int == 12
+         else ('the last poll returned rc ' ~ windows_vm_first_boot_rc
+               ~ ((': ' ~ windows_vm_first_boot_output) if windows_vm_first_boot_output else '')) }}
 
 # Each lab NIC is found by its MAC, renamed after its network, given its
 # static address and filed as a Private network. The management NIC is

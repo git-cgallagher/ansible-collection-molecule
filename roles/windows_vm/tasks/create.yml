@@ -73,6 +73,7 @@
     windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
     windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
     windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    windows_vm_qemu_log: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qemu.log"
     # WinRM for Ansible, on a 127.0.0.1 high port so nothing needs root.
     windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ molecule_platform.winrm_port }}-:5985"]
 
@@ -205,11 +206,18 @@
 
 # Machine type, BIOS boot, virtio disk/NIC and Hyper-V enlightenments match
 # how jborean93's packer-windoze boxes are built (roles/setup/tasks/qemu.yml).
+# QEMU runs under files/qemu_supervisor.py rather than -daemonize, which
+# discards QEMU's output and exit status: its log records what QEMU printed and
+# how it stopped, and ready.yml shows it when a VM dies. -no-shutdown keeps a
+# guest that powers off in QEMU, with its monitor up for the screendump; a
+# host signal (destroy's kill) still ends QEMU.
 - name: Start the VM
   ansible.builtin.command:
     expand_argument_vars: false
     argv: >-
-      {{ ['qemu-system-x86_64',
+      {{ [ansible_playbook_python, role_path ~ '/files/qemu_supervisor.py',
+          '--log', windows_vm_qemu_log, '--wait-for', windows_vm_pidfile, '--wait-for', windows_vm_monitor, '--',
+          'qemu-system-x86_64',
           '-name', windows_vm_name_prefix ~ '-' ~ molecule_platform.name,
           '-machine', 'type=pc,accel=kvm',
           '-cpu', 'host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time',
@@ -223,7 +231,7 @@
          + ['-display', 'none',
             '-monitor', 'unix:' ~ windows_vm_monitor ~ ',server,nowait',
             '-pidfile', windows_vm_pidfile,
-            '-daemonize'] }}
+            '-no-shutdown'] }}
   changed_when: true
 
 # Appended, so a looped include_role collects one entry per VM.

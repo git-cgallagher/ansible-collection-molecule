@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0 (2026-11-02)
+
+A `windows_vm` whose QEMU dies, or whose guest stops, now fails the run at the next poll and says
+why ([issue #13](https://github.com/git-cgallagher/ansible-collection-molecule/issues/13)). Found
+in ansible-collection-windows PR #36: on 2 of about 9 runs of its three-VM lab, one VM's QEMU
+vanished during first boot, and the wait then polled for its whole budget with nothing to show
+why.
+
+- **QEMU runs under a supervisor** (`roles/windows_vm/files/qemu_supervisor.py`) instead of
+  `-daemonize`, which discarded QEMU's output and exit status. `<lab dir>/<platform>-qemu.log` holds
+  what QEMU printed and how it stopped ("exited with status N" or "killed by signal N (SIGNAME)"), and
+  destroy keeps it. Create still fails at once, with QEMU's own message, if QEMU can't start.
+- **`-no-shutdown`:** a guest that powers itself off stays in QEMU, so its monitor still answers and
+  the screendump still works. A kill (destroy's) still ends QEMU.
+- **The first-boot wait checks the VM before WinRM** (`files/first_boot_poll.py`): a QEMU that
+  exited, or a guest that isn't running (powered off, paused on an error), ends the wait at the next
+  poll, and the failure message quotes the end of the QEMU log.
+- **A deadline instead of a poll count:** `windows_vm_first_boot_timeout` (seconds, default 1800),
+  counted once for all of a scenario's VMs. Polls that each hung for their 40 s could stretch the old
+  90 polls to 75 minutes, the length of a consumer's whole CI step. `windows_vm_first_boot_retries`
+  still works, as that many 10 s polls. The `windows_cluster` self-test drops its 120.
+- **`vm-screendump`** also prints each platform's QEMU run state and the end of its QEMU log, so
+  consumers' failure steps show them with no workflow change.
+- CI: `windows-lab`'s new `windows_vm lifecycle` job runs the supervisor and each poll answer
+  against a disk-less QEMU (`.github/ci/windows_vm_lifecycle.sh`, a few minutes, no box download),
+  and the scenario jobs upload the QEMU logs with the screendumps.
+
 ## 0.3.2 (2026-11-01)
 
 - **`quiet_vm` no longer fails when Windows refuses to stop Windows Update**
