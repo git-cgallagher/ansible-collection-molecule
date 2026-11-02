@@ -25,6 +25,11 @@ platforms:
     image: python:3.13-slim
     network_mode: host
 provisioner:
+  env:
+    # A fact cache, so verify sees the facts quiet_vm set in converge
+    # (quiet_vm_wuauserv_stopped). Merged with the base config's env.
+    ANSIBLE_CACHE_PLUGIN: jsonfile
+    ANSIBLE_CACHE_PLUGIN_CONNECTION: ${MOLECULE_EPHEMERAL_DIRECTORY}/facts
   inventory:
     host_vars:
       dc01:

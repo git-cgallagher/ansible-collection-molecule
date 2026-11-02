@@ -1,7 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-11-01)
 
+- **`quiet_vm` no longer fails when Windows refuses to stop Windows Update**
+  ([issue #18](https://github.com/git-cgallagher/ansible-collection-molecule/issues/18), a regression
+  from 0.3.0's `win_service` swap). Right after first boot `wuauserv` is often trigger-starting or
+  `StopPending`, and `win_service` failed with "Service 'Windows Update (wuauserv)' stop failed",
+  where the old script's `-ErrorAction SilentlyContinue` had carried on. The role now disables the
+  service first (always works, and stops trigger starts), then stops it with retries
+  (`quiet_vm_stop_retries`, `quiet_vm_stop_delay`: 10 × 6 s); if Windows still refuses, it warns and
+  leaves the service disabled but running instead of failing. Any other error still fails. The new
+  cacheable fact `quiet_vm_wuauserv_stopped` says which happened. A second run still reports no
+  changes, and check mode predicts.
+- **`quiet_vm` waits out Windows Update Medic.** Shortly after boot, Windows repairs a disabled
+  `wuauserv` (start mode back to manual, service started) when something asks for it; the box
+  already has the "no automatic updates" policy, and nothing an administrator can do over the
+  connection prevents the repair (Medic's service config is protected, and a registry change waits
+  for a reboot). It has been a one-shot repair (PR #19's first `windows_cluster` idempotence step
+  caught it on a freshly booted node), so after a pass that changed `wuauserv` the role waits
+  `quiet_vm_settle_seconds` (15), reads the service back, and disables and stops it once more if
+  Windows re-armed it. The cacheable fact `quiet_vm_wuauserv_rearmed` records that.
+- Self-tests: `windows_dc` and `windows_cluster` keep a fact cache, so their verify requires
+  `wuauserv` stopped unless `quiet_vm` warned (disabled is always required), and prints whether
+  Windows re-armed it during converge.
 - CI: the `sanity (devel, venv)` canary is gone; ansible-core `devel` is no longer tested (owner
   decision). Sanity covers `stable-2.18`…`stable-2.21`.
 

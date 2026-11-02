@@ -13,10 +13,22 @@
       [bool](Get-MpPreference).DisableRealtimeMonitoring
   register: quiet_defender
 
-- name: Require Windows Update stopped and disabled, and real-time scanning off
+# Evidence, not an assertion: whether Windows Update Medic re-armed wuauserv
+# during a converge and quiet_vm caught it (absent when no pass changed it).
+- name: Show whether Windows re-armed Windows Update during converge
+  ansible.builtin.debug:
+    msg: "quiet_vm_wuauserv_rearmed={{ ansible_facts.quiet_vm_wuauserv_rearmed | default('not checked') }}"
+
+# quiet_vm_wuauserv_stopped comes from the last converge through the
+# scenario's fact cache (ANSIBLE_CACHE_PLUGIN in molecule.yml). Stopped is
+# required unless quiet_vm warned that Windows refused the stop.
+- name: Require Windows Update disabled (and stopped unless quiet_vm warned), and real-time scanning off
   ansible.builtin.assert:
     that:
-      - quiet_wuauserv.services[0].state == 'stopped'
+      - ansible_facts.quiet_vm_wuauserv_stopped is defined
       - quiet_wuauserv.services[0].start_mode == 'disabled'
+      - quiet_wuauserv.services[0].state == 'stopped' or not (ansible_facts.quiet_vm_wuauserv_stopped | bool)
       - quiet_defender.output[0]
-    fail_msg: "{{ quiet_wuauserv.services[0] | to_json }} / defender {{ quiet_defender.output }}"
+    fail_msg: >-
+      {{ quiet_wuauserv.services[0] | to_json }} / stopped fact
+      {{ ansible_facts.quiet_vm_wuauserv_stopped | default('missing') }} / defender {{ quiet_defender.output }}

@@ -175,8 +175,12 @@ For a cluster lab, keep in mind:
 ## Quieting a test VM
 
 Windows Update and Defender real-time scanning slow a lab run down, and Windows Update can reboot
-the VM under it. `quiet_vm` turns both off: the `wuauserv` service stopped and disabled through
-`ansible.windows.win_service`, and Defender's `DisableRealtimeMonitoring` preference set through a
+the VM under it. `quiet_vm` turns both off: the `wuauserv` service disabled, then stopped, through
+`ansible.windows.win_service` (the stop is retried while the service is still starting after first
+boot; if Windows keeps refusing, the role warns and leaves it disabled but running, and the
+cacheable fact `quiet_vm_wuauserv_stopped` is `false`; and since Windows Update Medic can re-enable
+and start it shortly after boot, which nothing an administrator can prevent, the role waits
+`quiet_vm_settle_seconds` after a change and quiets it once more if that happened), and Defender's `DisableRealtimeMonitoring` preference set through a
 small `win_powershell` (there is no module), which reads the preference first so it reports `changed`
 only when the value flipped and predicts in check mode. A VM without Defender is left alone, and
 one whose Tamper Protection ignores the write gets a warning, not a change on every run. Both
@@ -213,17 +217,17 @@ step.
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.1"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.3.2"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.1
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.3.2
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.1
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.3.2
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
