@@ -1,6 +1,13 @@
 ---
-# Stop Windows Update and keep it from starting again (ansible.windows.win_service).
+# Disable Windows Update and stop it (ansible.windows.win_service). Sets the
+# fact quiet_vm_wuauserv_stopped (cacheable): false when Windows refused the
+# stop and the role warned instead of failing.
 quiet_vm_windows_update: true
+
+# How often, and how many seconds apart, the stop is retried while wuauserv
+# is starting or StopPending after first boot.
+quiet_vm_stop_retries: 10
+quiet_vm_stop_delay: 6
 
 # Turn off Defender real-time scanning (Set-MpPreference; there is no module).
 quiet_vm_defender: true

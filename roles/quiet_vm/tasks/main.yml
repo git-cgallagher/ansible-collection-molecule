@@ -2,12 +2,54 @@
 # Quiet a throwaway Windows test VM: Windows Update and Defender real-time
 # scanning compete with a test run for CPU and disk, and Windows Update can
 # reboot the VM under it.
-- name: Stop and disable Windows Update
+- name: Quiet Windows Update
   when: quiet_vm_windows_update | bool
-  ansible.windows.win_service:
-    name: wuauserv
-    state: stopped
-    start_mode: disabled
+  block:
+    # Disabling always works, even while the service is starting, and keeps
+    # triggers from starting it again; stopping can't always (below).
+    - name: Disable Windows Update
+      ansible.windows.win_service:
+        name: wuauserv
+        start_mode: disabled
+
+    # Right after first boot wuauserv is often trigger-starting or
+    # StopPending, and Windows refuses the stop ("Service 'Windows Update
+    # (wuauserv)' stop failed"), so it is retried. If Windows still refuses,
+    # the VM is left disabled but running, with a warning rather than a
+    # failure: the role quiets a lab VM, it doesn't guarantee a state. Any
+    # other error still fails the run.
+    - name: Stop Windows Update
+      block:
+        - name: Stop Windows Update
+          ansible.windows.win_service:
+            name: wuauserv
+            state: stopped
+          register: quiet_vm_wuauserv_stop
+          until: quiet_vm_wuauserv_stop is succeeded
+          retries: "{{ quiet_vm_stop_retries }}"
+          delay: "{{ quiet_vm_stop_delay }}"
+      rescue:
+        - name: Fail on anything but Windows refusing the stop
+          when: >-
+            ansible_failed_result.msg | default('')
+            is not search('stop failed|Failed to stop service|cannot be stopped')
+          ansible.builtin.fail:
+            msg: "{{ ansible_failed_result.msg | default('stopping wuauserv failed') }}"
+
+        - name: Warn that Windows Update is disabled but still running
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: Windows refused to stop wuauserv after
+              {{ ansible_failed_result.attempts | default(1) }} attempts
+              ({{ ansible_failed_result.msg | default('') }}). It is disabled, so it won't start
+              again, but it keeps running until it exits on its own.
+
+    # Cacheable, so a later playbook with a fact cache (a Molecule verify) can
+    # tell a warned stop from a regression.
+    - name: Record whether Windows Update stopped
+      ansible.builtin.set_fact:
+        quiet_vm_wuauserv_stopped: "{{ quiet_vm_wuauserv_stop is succeeded }}"
+        cacheable: true
 
 # No module covers Set-MpPreference. The script reads the preference first
 # and only writes when it differs, then reads it back: with Defender Tamper

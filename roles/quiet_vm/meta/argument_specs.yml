@@ -12,7 +12,20 @@ argument_specs:
       quiet_vm_windows_update:
         type: bool
         default: true
-        description: Stop the C(wuauserv) service and set its start mode to C(disabled).
+        description:
+          - Set the C(wuauserv) service's start mode to C(disabled), then stop it, retrying while it
+            is starting or stopping after first boot.
+          - If Windows still refuses the stop, the task warns instead of failing (the service stays
+            disabled but running); any other error fails.
+          - Sets the cacheable fact C(quiet_vm_wuauserv_stopped), C(false) when the stop was refused.
+      quiet_vm_stop_retries:
+        type: int
+        default: 10
+        description: How many times the C(wuauserv) stop is tried.
+      quiet_vm_stop_delay:
+        type: int
+        default: 6
+        description: Seconds between C(wuauserv) stop attempts.
       quiet_vm_defender:
         type: bool
         default: true

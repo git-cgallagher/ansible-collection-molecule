@@ -135,6 +135,12 @@ Which commit gets the tag:
 - **Windows re-arms `wuauserv` after a feature install and reboot** (the servicing stack starts it
   and resets its start mode). `quiet_vm` at the start of `ad_forest` alone made `windows_dc`'s
   idempotence step fail (PR #9's first run), so the role includes it again at the end.
+- **Windows can refuse to stop `wuauserv` right after first boot** (trigger-start or
+  `StopPending`): `win_service state: stopped` fails with "Service 'Windows Update (wuauserv)' stop
+  failed" (issue #18, consumers' prepare steps on 0.3.0). `quiet_vm` disables first, retries the
+  stop, and warns rather than fails if Windows still refuses; it records
+  `quiet_vm_wuauserv_stopped` as a cacheable fact, which the Windows scenarios' verify reads
+  through their jsonfile fact cache (`ANSIBLE_CACHE_PLUGIN` in their `molecule.yml`).
 - **ansible-core 2.19+ templates an `assert`'s `fail_msg` even when the assertion passes.** A
   `fail_msg` that dereferences a key the assertion is checking for (`{{ item.kind }}`) errors on the
   good path; use `default()` in messages.
@@ -212,6 +218,12 @@ Which commit gets the tag:
 - 0.3.1, on the Mac: lint, sanity and `docker_smoke` pass. The Tamper Protection branch of the
   Defender script (write ignored, warning, no change) can't be exercised on the lab box, which has
   Tamper Protection off; CI's `windows_dc` and `windows_cluster` prove the normal branch.
+- 0.3.2, on the Mac: lint, sanity and `docker_smoke` pass. The stop's rescue logic, run against a
+  simulated failure on localhost: a refused stop ("... stop failed") retries, warns and records
+  `false` without failing; any other error still fails; a clean stop records `true`; the fact
+  reaches a second playbook run through the jsonfile cache. Molecule merges the scenarios'
+  cache env with the base config's. Windows refusing the stop can't be forced on the lab box; CI's
+  `windows_dc` and `windows_cluster` prove the normal path and its idempotence.
 - aws on the driver (aws PR #4, merged 2026-11-01 as `465f104`): its first scenario,
   `ssm_parameter`, passes locally and in CI inside the ansible-runtime image (`0.2.1-ci`), with two
   docker platforms on one network from `platform_defaults` (`docker_networks` + `networks`) and moto
