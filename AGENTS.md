@@ -110,6 +110,11 @@ Which commit gets the tag:
   tested and merged on that pin.
 - **The merge commit** otherwise (`v0.1.0` is `d9421b5`).
 
+The tag doesn't finish a release: the consumers' labs and the ansible-runtime image's driver pin
+move to it in one round, then the consumers' `RUNTIME_IMAGE`. The steps, in order, are in
+ansible-runtime's
+[docs/SHARED-CI.md](https://github.com/git-cgallagher/ansible-runtime/blob/main/docs/SHARED-CI.md#a-driver-release-and-the-round-after-it).
+
 ## Repo settings (public-repo baseline, applied 2026-10-31)
 
 - Ruleset **"main protection"** (id `26286539`) on the default branch: active, no bypass actors,
