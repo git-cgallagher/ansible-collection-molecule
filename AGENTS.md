@@ -132,9 +132,15 @@ Which commit gets the tag:
 - **ansible-core `devel` isn't tested** (owner decision, 2026-11-01; the `sanity (devel, venv)`
   canary was removed). If it ever comes back: devel's test container failed to start on GitHub
   runners (remounting `/sys/fs/cgroup`, 2026-10-31), so it needs `ansible-test --venv`.
-- **Windows re-arms `wuauserv` after a feature install and reboot** (the servicing stack starts it
-  and resets its start mode). `quiet_vm` at the start of `ad_forest` alone made `windows_dc`'s
-  idempotence step fail (PR #9's first run), so the role includes it again at the end.
+- **Windows Update Medic re-arms a disabled `wuauserv` shortly after boot** (start mode back to
+  manual, service started), even with the box's "no automatic updates" policy, and an
+  administrator can't stop it over the connection: Medic's service config is protected and a
+  registry `Start` change waits for a reboot. Seen as idempotence failures: `windows_dc` on PR #9's
+  first run (first blamed on the feature install and reboot; `ad_forest` re-quiets at the end) and
+  node1 in PR #19's `windows_cluster`, eight seconds after the first converge. It has been a
+  one-shot repair, so `quiet_vm` waits `quiet_vm_settle_seconds` after a change, reads the
+  service back and quiets it once more (`quiet_vm_wuauserv_rearmed`). If it ever loops, the
+  question is the contract (run it where consumers do, in prepare), not more code.
 - **Windows can refuse to stop `wuauserv` right after first boot** (trigger-start or
   `StopPending`): `win_service state: stopped` fails with "Service 'Windows Update (wuauserv)' stop
   failed" (issue #18, consumers' prepare steps on 0.3.0). `quiet_vm` disables first, retries the
@@ -222,8 +228,11 @@ Which commit gets the tag:
   simulated failure on localhost: a refused stop ("... stop failed") retries, warns and records
   `false` without failing; any other error still fails; a clean stop records `true`; the fact
   reaches a second playbook run through the jsonfile cache. Molecule merges the scenarios'
-  cache env with the base config's. Windows refusing the stop can't be forced on the lab box; CI's
-  `windows_dc` and `windows_cluster` prove the normal path and its idempotence.
+  cache env with the base config's. The settle-and-reassert flow, with the Windows modules stubbed
+  on localhost: a re-arm runs one more pass, no re-arm skips it, an unchanged run skips the settle,
+  and check mode skips the read-back. Windows refusing the stop, or Medic's repair, can't be forced
+  on the lab box; CI's `windows_dc` and `windows_cluster` are the proof, and since the repair is
+  probabilistic one green run is evidence, not certainty.
 - aws on the driver (aws PR #4, merged 2026-11-01 as `465f104`): its first scenario,
   `ssm_parameter`, passes locally and in CI inside the ansible-runtime image (`0.2.1-ci`), with two
   docker platforms on one network from `platform_defaults` (`docker_networks` + `networks`) and moto

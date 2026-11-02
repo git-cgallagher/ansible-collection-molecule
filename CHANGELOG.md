@@ -12,8 +12,17 @@
   leaves the service disabled but running instead of failing. Any other error still fails. The new
   cacheable fact `quiet_vm_wuauserv_stopped` says which happened. A second run still reports no
   changes, and check mode predicts.
+- **`quiet_vm` waits out Windows Update Medic.** Shortly after boot, Windows repairs a disabled
+  `wuauserv` (start mode back to manual, service started) when something asks for it; the box
+  already has the "no automatic updates" policy, and nothing an administrator can do over the
+  connection prevents the repair (Medic's service config is protected, and a registry change waits
+  for a reboot). It has been a one-shot repair (PR #19's first `windows_cluster` idempotence step
+  caught it on a freshly booted node), so after a pass that changed `wuauserv` the role waits
+  `quiet_vm_settle_seconds` (15), reads the service back, and disables and stops it once more if
+  Windows re-armed it. The cacheable fact `quiet_vm_wuauserv_rearmed` records that.
 - Self-tests: `windows_dc` and `windows_cluster` keep a fact cache, so their verify requires
-  `wuauserv` stopped unless `quiet_vm` warned (disabled is always required).
+  `wuauserv` stopped unless `quiet_vm` warned (disabled is always required), and prints whether
+  Windows re-armed it during converge.
 - CI: the `sanity (devel, venv)` canary is gone; ansible-core `devel` is no longer tested (owner
   decision). Sanity covers `stable-2.18`…`stable-2.21`.
 

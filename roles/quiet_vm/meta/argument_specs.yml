@@ -18,6 +18,7 @@ argument_specs:
           - If Windows still refuses the stop, the task warns instead of failing (the service stays
             disabled but running); any other error fails.
           - Sets the cacheable fact C(quiet_vm_wuauserv_stopped), C(false) when the stop was refused.
+          - Waits out a Windows Update Medic repair (see C(quiet_vm_settle_seconds)).
       quiet_vm_stop_retries:
         type: int
         default: 10
@@ -26,6 +27,14 @@ argument_specs:
         type: int
         default: 6
         description: Seconds between C(wuauserv) stop attempts.
+      quiet_vm_settle_seconds:
+        type: int
+        default: 15
+        description:
+          - After a pass that changed C(wuauserv), seconds to wait before reading it back. Windows
+            Update Medic can re-enable and start a disabled C(wuauserv) shortly after boot; if it
+            did, the role disables and stops it once more and sets the cacheable fact
+            C(quiet_vm_wuauserv_rearmed).
       quiet_vm_defender:
         type: bool
         default: true

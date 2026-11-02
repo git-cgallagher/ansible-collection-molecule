@@ -13,6 +13,12 @@
       [bool](Get-MpPreference).DisableRealtimeMonitoring
   register: quiet_defender
 
+# Evidence, not an assertion: whether Windows Update Medic re-armed wuauserv
+# during a converge and quiet_vm caught it (absent when no pass changed it).
+- name: Show whether Windows re-armed Windows Update during converge
+  ansible.builtin.debug:
+    msg: "quiet_vm_wuauserv_rearmed={{ ansible_facts.quiet_vm_wuauserv_rearmed | default('not checked') }}"
+
 # quiet_vm_wuauserv_stopped comes from the last converge through the
 # scenario's fact cache (ANSIBLE_CACHE_PLUGIN in molecule.yml). Stopped is
 # required unless quiet_vm warned that Windows refused the stop.

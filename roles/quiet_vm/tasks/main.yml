@@ -5,44 +5,42 @@
 - name: Quiet Windows Update
   when: quiet_vm_windows_update | bool
   block:
-    # Disabling always works, even while the service is starting, and keeps
-    # triggers from starting it again; stopping can't always (below).
-    - name: Disable Windows Update
-      ansible.windows.win_service:
-        name: wuauserv
-        start_mode: disabled
+    - name: Disable and stop Windows Update
+      ansible.builtin.include_tasks: wuauserv.yml
 
-    # Right after first boot wuauserv is often trigger-starting or
-    # StopPending, and Windows refuses the stop ("Service 'Windows Update
-    # (wuauserv)' stop failed"), so it is retried. If Windows still refuses,
-    # the VM is left disabled but running, with a warning rather than a
-    # failure: the role quiets a lab VM, it doesn't guarantee a state. Any
-    # other error still fails the run.
-    - name: Stop Windows Update
+    # Shortly after boot, Windows Update Medic repairs a disabled wuauserv
+    # (start mode back to manual, service started) when something asks for
+    # it, and nothing an administrator can do over the connection prevents
+    # that (its service config is protected, a registry change waits for a
+    # reboot). It has been a one-shot repair, so the role waits it out:
+    # after a pass that changed something, it settles, reads the service
+    # back, and runs the pass once more if Windows re-armed it.
+    - name: Wait out a Windows Update repair
+      when:
+        - not ansible_check_mode
+        - quiet_vm_wuauserv_disable is changed or quiet_vm_wuauserv_stop is changed
       block:
-        - name: Stop Windows Update
-          ansible.windows.win_service:
-            name: wuauserv
-            state: stopped
-          register: quiet_vm_wuauserv_stop
-          until: quiet_vm_wuauserv_stop is succeeded
-          retries: "{{ quiet_vm_stop_retries }}"
-          delay: "{{ quiet_vm_stop_delay }}"
-      rescue:
-        - name: Fail on anything but Windows refusing the stop
-          when: >-
-            ansible_failed_result.msg | default('')
-            is not search('stop failed|Failed to stop service|cannot be stopped')
-          ansible.builtin.fail:
-            msg: "{{ ansible_failed_result.msg | default('stopping wuauserv failed') }}"
+        - name: Give Windows Update Medic time to react
+          ansible.builtin.pause:
+            seconds: "{{ quiet_vm_settle_seconds }}"
 
-        - name: Warn that Windows Update is disabled but still running
-          ansible.builtin.debug:
-            msg: >-
-              WARNING: Windows refused to stop wuauserv after
-              {{ ansible_failed_result.attempts | default(1) }} attempts
-              ({{ ansible_failed_result.msg | default('') }}). It is disabled, so it won't start
-              again, but it keeps running until it exits on its own.
+        - name: Read Windows Update back
+          ansible.windows.win_service_info:
+            name: wuauserv
+          register: quiet_vm_wuauserv_after
+
+        # Cacheable, like quiet_vm_wuauserv_stopped below, for a later
+        # verify. A refused stop (still running, warned) isn't a re-arm.
+        - name: Record whether Windows re-armed Windows Update
+          ansible.builtin.set_fact:
+            quiet_vm_wuauserv_rearmed: >-
+              {{ quiet_vm_wuauserv_after.services[0].start_mode != 'disabled'
+                 or (quiet_vm_wuauserv_stop is succeeded and quiet_vm_wuauserv_after.services[0].state != 'stopped') }}
+            cacheable: true
+
+        - name: Disable and stop Windows Update again
+          when: quiet_vm_wuauserv_rearmed | bool
+          ansible.builtin.include_tasks: wuauserv.yml
 
     # Cacheable, so a later playbook with a fact cache (a Molecule verify) can
     # tell a warned stop from a regression.
