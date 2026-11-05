@@ -224,7 +224,9 @@ ansible-runtime's
   The cleanup freed 25.2 GB in 50 to 143 s (Android SDK 11.0, .NET 5.7, GHCup 3.7, Swift 3.5,
   CodeQL 1.3; `/opt/ghc` is gone), and the labs ended at 6.8 GB (`windows_dc`: the 5.6 GB box plus
   dc01's 1.3 GB disk) and 7.3 GB (`windows_cluster`: box, node1 0.7, node2 1.0), with 33 to 34 GB
-  left. A consumer's lab needs the step too: setup-molecule's `lab-dir` only creates the directory.
+  left. A normal run (42095300651) had 85.8 GB free, kept `/mnt/molecule-lab` and ended at 7.0 and
+  8.7 GB: a VM's disk ends anywhere from 0.7 to 2.4 GB. A consumer's lab needs the step too:
+  setup-molecule's `lab-dir` only creates the directory.
   A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
   unconfirmed), so read the step's log the first time a run lands on one.
 - **Jinja's `'\n'` stays a literal backslash-n in an Ansible template** (ansible-core 2.21.5, seen in
