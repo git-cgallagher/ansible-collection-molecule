@@ -5,7 +5,7 @@ description: >-
   SHA pin versions all three), plus a collection's test requirements, from an
   ansible-runtime image or from Galaxy. Exposes the checkout as
   <namespace>.<name> for Molecule; optionally enables KVM and QEMU and a lab
-  directory on the runner's large /mnt disk for windows_vm platforms.
+  directory for windows_vm platforms.
 inputs:
   collection:
     description: The checked-out collection's FQCN (namespace.name), linked into .molecule-collections. Empty for a standalone role.
@@ -52,7 +52,10 @@ inputs:
   lab-dir:
     description: >-
       If set, create this directory (owned by the runner user) and export it as
-      MOLECULE_LAB_DIR. windows_vm needs ~20 GB, more than the root filesystem has; use /mnt/....
+      MOLECULE_LAB_DIR. windows_vm needs ~20 GB free there while the box isn't cached. On
+      ubuntu-latest /mnt is a directory on the root filesystem, not a disk of its own, and some
+      runners come up with ~16 GB free: run a "Make room for the lab" step first, which frees room
+      and picks the directory (this repository's .github/workflows/windows-lab.yml has one).
     required: false
     default: ''
 runs:

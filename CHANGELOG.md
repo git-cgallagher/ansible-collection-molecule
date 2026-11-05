@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- CI: `windows-lab`'s scenario jobs make room for the lab on runners short of disk, with the same
+  "Make room for the lab" step as the consumers' Windows labs (ansible-collection-windows PR #63,
+  for its issue #62). Some `ubuntu-latest` runners come up with 15.7 GB free on `/`, which holds
+  `/mnt`, and `windows_vm` needs 20 GB while the box isn't cached. Under 30 GB free on `/mnt`, the
+  step deletes preinstalled toolchains the lab never uses (about 25 GB) and moves the lab to
+  `$HOME/molecule-lab`; "Show the lab's disk use" prints what the lab used. The lab path is one
+  workflow-level `MOLECULE_LAB_DIR`.
+- setup-molecule's description and `lab-dir` input, and the comments on `windows_vm_dir` and
+  `molecule_lab_dir`, no longer call `/mnt` a big disk of its own (text only).
+
 ## 0.5.0 (2026-11-02)
 
 setup-molecule can take the collections from an ansible-runtime image instead of Galaxy, so a job

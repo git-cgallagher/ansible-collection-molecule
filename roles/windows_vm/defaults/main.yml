@@ -4,7 +4,8 @@
 # over the driver's platform_defaults). Its keys are listed in vars/main.yml.
 
 # Box cache, VM disk, pidfile and monitor socket. Needs ~20 GB free while the
-# box isn't cached, ~8 GB after (CI points it at the runner's /mnt disk).
+# box isn't cached, ~8 GB after (CI sets MOLECULE_LAB_DIR, see
+# .github/workflows/windows-lab.yml).
 windows_vm_dir: "{{ molecule_lab_dir | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}"
 
 # QEMU's -name, and the prefix ps/top show for the VM process.

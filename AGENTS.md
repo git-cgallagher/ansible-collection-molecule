@@ -207,6 +207,28 @@ ansible-runtime's
 - **A kill still ends QEMU under `-no-shutdown`.** A host signal overrides the shutdown action (QEMU's
   `qemu_system_killed`), so destroy's SIGTERM works; the lifecycle test checks it. Only a guest that
   powers itself off stays, paused in the "shutdown" state.
+- **Some runners come up short of disk, and `/mnt` is no disk of its own.** On `ubuntu-latest`
+  (2026-11), `/mnt` is a directory on the root filesystem: usually `/dev/root`, 145 GB with about
+  85 GB free, but some runners come up with a 72 GB `/dev/mapper/cow-root` and 15.7 GB free
+  (actions/runner-images#15238). There `windows_vm`'s create refuses ("/mnt/molecule-lab has
+  15.7 GB free; this run needs 20.0 GB") before any VM boots: the windows collection's
+  `domain-lab` lost random jobs to it (git-cgallagher/ansible-collection-windows#62).
+  `windows-lab.yml`'s `molecule` job starts with "Make room for the lab", the same step as the
+  consumers' Windows labs (windows' `domain-lab.yml`, its PR #63, and isc's `windows-dc.yml`): it
+  measures `/mnt` and, under 30 GB, deletes preinstalled toolchains the lab never uses and moves the
+  lab to `$HOME/molecule-lab` through `$GITHUB_ENV`. Later steps read the path from
+  `${{ env.MOLECULE_LAB_DIR }}` (or `$MOLECULE_LAB_DIR`), so never write `/mnt/molecule-lab` into a
+  step; the `lifecycle` job boots no box and keeps `/mnt`. "Show the lab's disk use" prints what
+  the lab holds at the end. Measured 2026-11-05 (runner image 20261101.360.1): a `workflow_dispatch`
+  run that first left every runner 15.7 GB free (run 42095393550) passed all three jobs this way.
+  The cleanup freed 25.2 GB in 50 to 143 s (Android SDK 11.0, .NET 5.7, GHCup 3.7, Swift 3.5,
+  CodeQL 1.3; `/opt/ghc` is gone), and the labs ended at 6.8 GB (`windows_dc`: the 5.6 GB box plus
+  dc01's 1.3 GB disk) and 7.3 GB (`windows_cluster`: box, node1 0.7, node2 1.0), with 33 to 34 GB
+  left. A normal run (42095300651) had 85.8 GB free, kept `/mnt/molecule-lab` and ended at 7.0 and
+  8.7 GB: a VM's disk ends anywhere from 0.7 to 2.4 GB. A consumer's lab needs the step too:
+  setup-molecule's `lab-dir` only creates the directory.
+  A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
+  unconfirmed), so read the step's log the first time a run lands on one.
 - **Jinja's `'\n'` stays a literal backslash-n in an Ansible template** (ansible-core 2.21.5, seen in
   the first-boot failure message). In a folded block (`>-`), a blank line is what makes a newline.
 - **Installing this collection from a checkout downloads its dependencies.** `ansible-galaxy

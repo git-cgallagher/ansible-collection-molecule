@@ -3,8 +3,8 @@
 molecule_kinds: [docker, windows_vm]
 
 # Box cache and VM disks: $MOLECULE_LAB_DIR, else ~/.cache/molecule-lab
-# (CI points it at the runner's /mnt disk; a base config can set it in
-# provisioner.env).
+# (CI sets it, see .github/workflows/windows-lab.yml; a base config can set it
+# in provisioner.env).
 molecule_lab_dir: >-
   {{ lookup('ansible.builtin.env', 'MOLECULE_LAB_DIR')
      | default(lookup('ansible.builtin.env', 'HOME') ~ '/.cache/molecule-lab', true) }}

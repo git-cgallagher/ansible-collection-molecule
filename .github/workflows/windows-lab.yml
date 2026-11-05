@@ -52,6 +52,12 @@ env:
   # Stream Ansible's output (retry lines included) instead of buffering it
   # until the play ends; a stalled step is then visible in the live log.
   PYTHONUNBUFFERED: '1'
+  # The driver keeps the box (~6 GB, plus ~6 GB while unpacking), the VM disks,
+  # the lab network hubs' pidfiles and the QEMU logs here. On ubuntu-latest
+  # /mnt is a directory on the root filesystem, not a disk of its own. The
+  # molecule job's "Make room for the lab" step moves the lab when /mnt is
+  # short of room (the lifecycle job boots no box and needs no room).
+  MOLECULE_LAB_DIR: /mnt/molecule-lab
 
 jobs:
   molecule:
@@ -71,8 +77,49 @@ jobs:
         with:
           persist-credentials: false
 
-      # The runner's temp disk: the box (~6 GB, plus ~6 GB while unpacking)
-      # and the VM disk don't fit on the ~14 GB root filesystem.
+      # The driver refuses to create a VM with under 20 GB free in the lab
+      # directory (roles/windows_vm/tasks/create.yml, measured with df -Pk, as
+      # here).
+      # Most runners have about 85 GB free on / (145 GB, /dev/root), but some
+      # come up with a 72 GB root (/dev/mapper/cow-root) and about 16 GB free
+      # (git-cgallagher/ansible-collection-windows#62,
+      # actions/runner-images#15238). Then this step deletes big preinstalled
+      # toolchains the lab never uses (about 25 GB, in one to three minutes)
+      # and moves the lab to a directory on /: the same disk as /mnt today, the
+      # right one if /mnt is ever a small disk of its own. The later steps read
+      # the new path from ${{ env.MOLECULE_LAB_DIR }}. NEED_GB leaves margin
+      # over the driver's 20 GB, part of which the image pull, apt and pip
+      # below use. The bigger lab, windows_cluster's two VMs, ends at under
+      # 9 GB (2026-11-05), so the driver's check is what has to pass.
+      - name: Make room for the lab
+        timeout-minutes: 10
+        env:
+          NEED_GB: '30'
+        run: |
+          avail_kb() { df -Pk "$1" | awk 'NR == 2 {print $4}'; }
+          gb() { awk -v kb="$1" 'BEGIN {printf "%.1f", kb / 1048576}'; }
+          need_kb=$((NEED_GB * 1048576))
+          lab=$MOLECULE_LAB_DIR
+          df -h / /mnt
+          if [ "$(avail_kb /mnt)" -lt "$need_kb" ]; then
+            echo "/mnt has $(gb "$(avail_kb /mnt)") GB free, under $NEED_GB GB. Deleting from /:"
+            for dir in /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                       /opt/hostedtoolcache/CodeQL /usr/share/swift; do
+              [ -e "$dir" ] || continue
+              before=$(avail_kb /)
+              sudo rm -rf "$dir"
+              echo "  $dir ($(gb $(($(avail_kb /) - before))) GB)"
+            done
+            lab=$HOME/molecule-lab
+            echo "MOLECULE_LAB_DIR=$lab" >> "$GITHUB_ENV"
+          fi
+          # The lab directory doesn't exist yet (setup-molecule creates it).
+          free_kb=$(avail_kb "$(dirname "$lab")")
+          echo "Lab directory: $lab, on $(df -P "$(dirname "$lab")" | awk 'NR == 2 {print $1}'), $(gb "$free_kb") GB free"
+          if [ "$free_kb" -lt "$need_kb" ]; then
+            echo "::warning::Only $(gb "$free_kb") GB free for the lab ($lab); it may run out of room. Re-run the job if it does."
+          fi
+
       # Python packages and collections at the versions of the ansible-runtime image (RUNTIME_IMAGE
       # in ci.yml): its constraints.txt and its collections, the same ansible-core, Molecule, linters,
       # pypsrp and collections every consumer runs. This repo's CI never runs IN the image (it would
@@ -96,7 +143,7 @@ jobs:
           requirements: extensions/molecule/requirements.yml
           constraints: .cache/constraints.txt
           kvm: 'true'
-          lab-dir: /mnt/molecule-lab
+          lab-dir: ${{ env.MOLECULE_LAB_DIR }}
 
       # --destroy=never: keep the VM for the diagnostics below; the last step
       # destroys it either way. A hang must become a failure, so the screen
@@ -105,6 +152,17 @@ jobs:
         timeout-minutes: 75
         run: molecule test -s ${{ matrix.scenario }} --destroy=never
 
+      # What the lab used (the box image, each VM's copy-on-write disk) and
+      # the room left, before destroy deletes the VM disks. QEMU pauses a VM
+      # whose disk runs out of room: the screen capture below then reports
+      # "VM status: paused (io-error)".
+      - name: Show the lab's disk use
+        if: always()
+        timeout-minutes: 2
+        run: |
+          du -sch "$MOLECULE_LAB_DIR"/* || true
+          df -h "$MOLECULE_LAB_DIR" || true
+
       # Separates "a hub never ran or died" from "frames don't cross" from
       # "Windows' firewall" when a lab network test fails.
       - name: Show the lab network hubs
@@ -112,7 +170,7 @@ jobs:
         timeout-minutes: 1
         run: |
           ss -ulnp | grep -i python || true
-          for f in /mnt/molecule-lab/hub-*.pid; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
+          for f in "$MOLECULE_LAB_DIR"/hub-*.pid; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
           ps -eo pid,args | grep '[l]ab_hub' || true
 
       - name: Capture the VM screen
@@ -120,7 +178,7 @@ jobs:
         timeout-minutes: 2
         uses: ./.github/actions/vm-screendump
         with:
-          lab-dir: /mnt/molecule-lab
+          lab-dir: ${{ env.MOLECULE_LAB_DIR }}
           platforms: ${{ matrix.platforms }}
 
       - name: Upload diagnostics
@@ -129,8 +187,8 @@ jobs:
         with:
           name: windows-lab-${{ matrix.scenario }}-diagnostics
           path: |
-            /mnt/molecule-lab/*-screen.ppm
-            /mnt/molecule-lab/*-qemu.log
+            ${{ env.MOLECULE_LAB_DIR }}/*-screen.ppm
+            ${{ env.MOLECULE_LAB_DIR }}/*-qemu.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -167,7 +225,7 @@ jobs:
           requirements: extensions/molecule/requirements.yml
           constraints: .cache/constraints.txt
           kvm: 'true'
-          lab-dir: /mnt/molecule-lab
+          lab-dir: ${{ env.MOLECULE_LAB_DIR }}
 
       - name: QEMU supervisor and first-boot poll
         timeout-minutes: 5
