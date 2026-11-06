@@ -255,9 +255,11 @@ ansible-runtime's
   about 40 kB/s while `apt-get update` from the same host took a second: 8 lab jobs hit 0.5.0's
   8-minute limit (5 in windows' `domain-lab`, 3 `windows_vm lifecycle` jobs here) and 3 got
   through in 7 to 8 minutes; that morning westus2 had taken 2 to 3 s, and 76 jobs in other
-  regions took 0 to 16 s. apt's own `Acquire::http::Timeout` counts only silence, and apt has no
-  minimum speed (`Dl-Limit` is a cap), so tuning apt can't catch a crawl: hence setup-molecule's
-  cache, its short first limits, and the retry without the first mirror (0.5.1).
+  regions took 0 to 16 s. On 2026-11-06 westus2 still crawled (about 36 kB/s) and an eastus2
+  runner got about 130 kB/s (windows PR #68's first lab run). apt's own `Acquire::http::Timeout`
+  counts only silence, and apt has no minimum speed (`Dl-Limit` is a cap), so tuning apt can't
+  catch a crawl: hence setup-molecule's cache, its short first limits, and the retry without the
+  first mirror (0.5.1).
 - **apt takes a `.deb` already in its archives directory on its size alone.** apt 2.8.3's
   `pkgAcqArchive::QueueNext` (`apt-pkg/acquire-item.cc`) marks a file of the right size done with
   no hash check; apt checks hashes only on what it downloads. In the local test of 0.5.1 a cached
@@ -437,6 +439,16 @@ ansible-runtime's
   restored from key: setup-molecule-apt-ubuntu24-7eb9f46202f586b8", "From the cache: 16 of 16
   files" and "Need to get 0 B/18.6 MB of archives", skipped the save, and was done with QEMU in
   11 s.
+- 0.5.1 in the consumers' labs (2026-11-06). windows PR #68 (merged as `e85b64c`) pinned `728a9fe`.
+  Its first `domain-lab` run (42280422380) missed the cache, a new key in that repo, and the
+  fallback took over in 3 of its 6 jobs: `wsfc` and `mssql_prereqs` in westus2 (about 4 MB from
+  Azure in 120 s, then the other 14.3 MB from archive.ubuntu.com in 1 to 3 s) and `gpo_import` in
+  eastus2 (about 16 MB in 120 s, part of it a half-downloaded `qemu-system-x86` that the second
+  try resumed: "Need to get 13.4 MB", "Fetched 2646 kB"). All six jobs passed. isc PR #37 (merged as
+  `854442a`): its manual `windows-dc` run 42280468722 passed (westus3, 18.6 MB in 10 s).
+  ansible-runtime 1.4.0 (its PR #21, `241c057`) pins `728a9fe` as the image's driver, and every
+  consumer runs `1.4.0-ci@sha256:317d54cc…`: isc PR #38, windows #71, orchestration #21, aws #9,
+  vmware #3 and this repository's #28, all merged 2026-11-06.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
@@ -452,6 +464,8 @@ ansible-runtime's
 - A guest whose own first-boot setup fails ("Windows Setup could not configure Windows to run on
   this computer's hardware", in the screendump) keeps WinRM's port open, so `ready` waits out the
   whole 30-minute deadline. Seen three times on 2026-11-02, in windows runs 41464369281 and
-  41521829034 and isc run 41512670995; a re-run cleared each. Logging the runner's CPU model
-  (`lscpu`) with the lab diagnostics would show whether it follows a host CPU type under
-  `-cpu host`; retrying such a VM's first boot once, on a fresh overlay, is another option.
+  41521829034 and isc run 41512670995, and again on 2026-11-06 in this repository's
+  `windows_cluster` (run 42165815334, node1, westus3); a re-run cleared each. Logging the
+  runner's CPU model (`lscpu`) with the lab diagnostics would show whether it follows a host CPU
+  type under `-cpu host`; retrying such a VM's first boot once, on a fresh overlay, is another
+  option.
