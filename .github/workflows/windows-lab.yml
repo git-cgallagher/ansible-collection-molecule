@@ -199,7 +199,9 @@ jobs:
   lifecycle:
     name: windows_vm lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Usually about a minute; room for setup-molecule's apt (10 minutes at
+    # most, with a slow mirror), the image pull and the test's own 5.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

@@ -46,7 +46,11 @@ inputs:
     required: false
     default: '3.13'
   kvm:
-    description: "'true' to enable /dev/kvm for the runner user and install QEMU and pypsrp (windows_vm platforms)."
+    description: >-
+      'true' to enable /dev/kvm for the runner user and install QEMU and pypsrp (windows_vm
+      platforms). QEMU's packages come from the actions cache when it has them (each checked against
+      its SHA256 in the signed package lists), else from the Ubuntu mirrors: apt-get takes 10 minutes
+      at most in all, and an update or download too slow for its limit moves to the next mirror.
     required: false
     default: 'false'
   lab-dir:
@@ -65,11 +69,16 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    # apt-get gets its own time limits because a caller can only limit this
-    # whole action (a composite action's steps can't set timeout-minutes): a
-    # stuck apt once hung a consumer's job for two hours. Each call normally
-    # takes well under a minute.
-    - name: Enable KVM and install QEMU
+    # QEMU (18.6 MB of .debs on ubuntu-24.04) comes from the cache when it can.
+    # The key is the exact files apt would download, so a hit downloads nothing
+    # and a new QEMU build, or a runner image that needs other files, misses.
+    # Every apt-get has its own limit, since a caller can only limit this whole
+    # action: update 1 min, download 2, install 2. An update or a download that
+    # times out gets one more try (1 and 4 min) without the mirror apt tried
+    # first: from westus2 the Azure mirror has sent .debs at 40 kB/s. 10 min at
+    # most in all (apt_install.sh).
+    - name: Enable KVM and list QEMU's packages
+      id: qemu
       if: inputs.kvm == 'true'
       shell: bash
       run: |
@@ -77,20 +86,35 @@ runs:
           | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
-        # apt_get <seconds> <apt-get args>: fail instead of hanging past the limit.
-        apt_get() {
-          local limit=$1
-          shift
-          sudo timeout --kill-after=30 "$limit" apt-get "$@" && return 0
-          local rc=$?
-          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-            echo "::error::apt-get $1 didn't finish in $((limit / 60)) minutes (a stuck mirror or dpkg lock?); re-run the job."
-          fi
-          return "$rc"
-        }
-        apt_get 180 update
-        apt_get 480 install -y --no-install-recommends qemu-system-x86 qemu-utils
+        "$GITHUB_ACTION_PATH/apt_install.sh" list "$RUNNER_TEMP/setup-molecule-apt" qemu-system-x86 qemu-utils
+
+    # A stuck cache download gives up after 2 minutes (actions/cache's default
+    # is 10) and counts as a miss.
+    - name: Restore QEMU's packages from the cache
+      id: qemu-cache
+      if: inputs.kvm == 'true' && steps.qemu.outputs.key != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
+      with:
+        path: ${{ runner.temp }}/setup-molecule-apt/debs
+        key: ${{ steps.qemu.outputs.key }}
+
+    - name: Install QEMU
+      if: inputs.kvm == 'true'
+      shell: bash
+      run: |
+        "$GITHUB_ACTION_PATH/apt_install.sh" install "$RUNNER_TEMP/setup-molecule-apt" qemu-system-x86 qemu-utils
         ls -l /dev/kvm
+
+    # Right after the download, not at the end of the job: a lab that fails
+    # later still leaves the cache for the next run.
+    - name: Save QEMU's packages to the cache
+      if: inputs.kvm == 'true' && steps.qemu.outputs.key != '' && steps.qemu-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ${{ runner.temp }}/setup-molecule-apt/debs
+        key: ${{ steps.qemu.outputs.key }}
 
     - name: Prepare the lab directory
       if: inputs.lab-dir != ''
