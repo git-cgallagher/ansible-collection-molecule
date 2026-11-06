@@ -287,7 +287,7 @@ ansible-runtime's
   collection directory. `image_collections.sh` asks Python for `ansible_collections.__path__`, which
   holds only the directories on `sys.path`.
 
-## Verified (2026-10-31 to 2026-11-02)
+## Verified (2026-10-31 to 2026-11-06)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -404,6 +404,35 @@ ansible-runtime's
   - isc `windows-dc`: isc PR #34, merged as `f28ffd7`; manual run 41524754716, by the ansible-runtime
     maintainer.
   ansible-runtime 1.3.0 (its PR #18, `278adc9`) pins the driver at `fe24140`.
+- 0.5.1, before CI (2026-11-05): `apt_install.sh` and the action's four QEMU steps, run as GitHub
+  runs a step (`bash -eo pipefail`) in an amd64 `ubuntu:24.04` container set up like a runner
+  (`mirror+file:` sources, the runner's 144-byte mirror list, a passwordless-sudo `runner` user;
+  a host directory stood in for actions/cache). The container needs 38 files (23.6 MB), a runner
+  16 (18.6 MB). A miss downloaded them, output the key and left them for the cache; a hit said
+  "From the cache: 38 of 38 files" and "Need to get 0 B/23.6 MB of archives"; a cached `seabios`
+  with one byte changed got the warning, only it was downloaded again (175 kB), and the good copy
+  went back for the cache. With incoming port 80 policed to about 43 kB/s (`tc` ingress,
+  `police rate 320kbit burst 128k mtu 64k`; without `mtu 64k` it drops every GRO packet and
+  nothing arrives) once the download started, the first try held 4.6 MB at its 120 s limit, the
+  Azure mirror was dropped, and the second try got "Need to get 19.0 MB/23.6 MB" from
+  archive.ubuntu.com in a second. Policed from the start, with the package lists removed (a
+  runner's are a week old), the update timed out at 60 s and ran again from archive.ubuntu.com
+  in 3 s, with the same cache key. With port 443 policed too once the download started, the
+  second timeout kept archive.ubuntu.com ("Trying the same mirrors again.") and the step
+  failed after 240 more seconds with the error ("... nor in 240 more on the next mirror"), rc 124.
+  shellcheck 0.11.0, actionlint 1.7.13 and yamllint 1.38.0 are clean.
+- 0.5.1 on a slow mirror for real (PR #27's first run, [42165110725](https://github.com/git-cgallagher/ansible-collection-molecule/actions/runs/42165110725),
+  2026-11-06). A TEMP job meant to police port 80 landed in westus2 while its Azure mirror was
+  crawling, and its `tc filter add … police …` failed on the runner's kernel ("RTNETLINK answers:
+  Invalid argument", in every TEMP job; Docker Desktop's kernel took the same command), so it met
+  the real thing. `apt-get update` from the same host took a second; the download didn't (1.5 MB
+  `ipxe-qemu` in 39 s), and at 120 s the action warned, dropped the Azure mirror (the list went
+  from 144 to 93 bytes) and the second try said "Need to get 15.4 MB/18.6 MB of archives" and
+  "Fetched 14.1 MB in 2s (8206 kB/s)" from archive.ubuntu.com. QEMU installed, the cache was
+  saved, and the job passed, 2 min 15 s after the step began. The runner's mirror list was the
+  one reconstructed above. The `lifecycle` job (westus3) missed the cache, fetched 18.6 MB in a
+  second, and logged "Failed to save: Unable to reserve cache with key …, another job may be
+  creating this cache" as info, not a warning: a scenario job had saved that key 5 s earlier.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
