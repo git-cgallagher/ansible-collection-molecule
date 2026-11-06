@@ -419,8 +419,8 @@ ansible-runtime's
   runner's are a week old), the update timed out at 60 s and ran again from archive.ubuntu.com
   in 3 s, with the same cache key. With port 443 policed too once the download started, the
   second timeout kept archive.ubuntu.com ("Trying the same mirrors again.") and the step
-  failed after 240 more seconds with the error ("... nor in 240 more on the next mirror"), rc 124.
-  shellcheck 0.11.0, actionlint 1.7.13 and yamllint 1.38.0 are clean.
+  failed after 240 more seconds with the `::error::`, rc 124. shellcheck 0.11.0, actionlint 1.7.13
+  and yamllint 1.38.0 are clean.
 - 0.5.1 on a slow mirror for real (PR #27's first run, [42165110725](https://github.com/git-cgallagher/ansible-collection-molecule/actions/runs/42165110725),
   2026-11-06). A TEMP job meant to police port 80 landed in westus2 while its Azure mirror was
   crawling, and its `tc filter add … police …` failed on the runner's kernel ("RTNETLINK answers:
@@ -433,6 +433,10 @@ ansible-runtime's
   one reconstructed above. The `lifecycle` job (westus3) missed the cache, fetched 18.6 MB in a
   second, and logged "Failed to save: Unable to reserve cache with key …, another job may be
   creating this cache" as info, not a warning: a scenario job had saved that key 5 s earlier.
+  The next run on the PR (42165555607) restored it: its `lifecycle` job (centralus) said "Cache
+  restored from key: setup-molecule-apt-ubuntu24-7eb9f46202f586b8", "From the cache: 16 of 16
+  files" and "Need to get 0 B/18.6 MB of archives", skipped the save, and was done with QEMU in
+  11 s.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 

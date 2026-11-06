@@ -8,7 +8,7 @@
 #            mirrors for the rest, then copy the files this runner needed into DIR/debs (saved
 #            to the cache after a miss).
 # Every apt-get call has its own time limit: a composite action's steps can't set
-# timeout-minutes. A download that times out gets one more try on the next mirror.
+# timeout-minutes. An update or a download that times out gets one more try on the next mirror.
 set -eo pipefail
 
 cmd=$1
@@ -71,7 +71,7 @@ fetch() {
   rc=0
   apt_get "$second" "$@" || rc=$?
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
-    echo "::error::$what didn't finish in $first seconds, nor in $second more on the next mirror (a slow network?); re-run the job."
+    echo "::error::$what didn't finish in $first seconds, nor in $second more on a second try (a slow network?); re-run the job."
   fi
   return "$rc"
 }
