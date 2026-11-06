@@ -230,24 +230,24 @@ step.
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.5.0"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.5.1"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.5.0
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.5.1
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.1
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
     # collections-image: <image>          # the collections from this image, never Galaxy (below)
     # constraints: .cache/constraints.txt  # pip -c, e.g. the ansible-runtime image's pins (below)
     # pip: ansible-lint                          # extra packages
-    # kvm: 'true'          # windows_vm platforms (apt-get time-limited: 3 min update, 8 min install)
+    # kvm: 'true'          # windows_vm platforms: KVM and QEMU (below)
     # lab-dir: /mnt/lab    # their box cache and disks
 - run: molecule test -s ha3
   working-directory: roles/kea_dhcp
@@ -265,7 +265,7 @@ runs the same versions as their jobs in the image and never downloads a collecti
     echo "image=$image" >> "$GITHUB_OUTPUT"
     mkdir -p .cache
     docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.0
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.1
   with:
     collection: git_cgallagher.isc
     collections-image: ${{ steps.runtime.outputs.image }}
@@ -281,6 +281,29 @@ names a collection the image lacks, or a version it doesn't have, then fails the
 downloading it: pin the collection in ansible-runtime's `requirements/collections.yml` first.
 Molecule's own `dependency` step finds everything installed and doesn't download either. Without
 `collections-image`, `requirements` install from Galaxy as before.
+
+With `kvm: 'true'` the action makes `/dev/kvm` usable and installs QEMU (`qemu-system-x86`,
+`qemu-utils`: 18.6 MB of `.deb`s on `ubuntu-24.04`) and pypsrp. QEMU's packages come from the
+actions cache when it has them: the key is the exact files apt would download after
+`apt-get update`, so a hit downloads nothing, and each cached file has to match its SHA256 in the
+signed package lists before apt sees it. After a miss the action saves them right away, so a lab
+that fails later still fills the cache. A cache saved on the default branch serves every pull
+request; one saved on a pull request serves only that pull request (and its re-runs).
+
+The mirrors are a runner's weak spot: from westus2, the Azure mirror the runners use first has
+sent QEMU at 40 kB/s, nearly eight minutes for 18.6 MB, while other regions take seconds. So
+every `apt-get` has its own time limit, and an update or a download that hits it gets one more
+try without the mirror apt tried first (on GitHub's runners, `archive.ubuntu.com` instead of
+`azure.archive.ubuntu.com`), keeping what it had downloaded:
+
+| Step | Limit | After a timeout |
+|---|---|---|
+| `apt-get update` | 1 min | 1 more min on the next mirror |
+| download (`--download-only`) | 2 min | 4 more min on the next mirror |
+| install (`--no-download`) | 2 min | fails the step |
+
+That's 10 minutes of apt at most; a healthy runner needs about 15 seconds. A `timeout-minutes`
+on the setup step must leave room for that: the windows collection's 15 does.
 
 How the image and this driver make up a collection's CI (which jobs run in the image and which on
 the runner, the pins a consumer holds, the round that follows a driver release):

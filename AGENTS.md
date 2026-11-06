@@ -82,6 +82,22 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   after that is `--offline`: the action's own collection, whose `galaxy.yml` dependencies must be in
   the image, and each `requirements` file, which then only checks. This repo's jobs that use the
   action map galaxy.ansible.com to 0.0.0.0 first, so anything that still tries to download fails.
+- **setup-molecule's QEMU install (0.5.1).** `kvm: 'true'` runs four steps around
+  `.github/actions/setup-molecule/apt_install.sh`. `list` runs `apt-get update`, then
+  `apt-get install --print-uris -o Acquire::ForceHash=SHA256` writes the files apt would download
+  (`'URI' FILE SIZE SHA256:…`) to `$RUNNER_TEMP/setup-molecule-apt/files`, and outputs the cache
+  key: `setup-molecule-apt-<ImageOS>-` plus 16 hex digits of a SHA256 over the sorted
+  `FILE SIZE SHA256` lines (not the URIs, which name the mirror), or nothing when nothing needs
+  downloading. `actions/cache/restore` fills `…/debs`. `install` copies each cached file whose
+  SHA256 matches into `/var/cache/apt/archives`, downloads the rest (`--download-only`), copies
+  the files into `…/debs`, then installs (`--no-download`). `actions/cache/save` stores `…/debs`
+  after a miss, at once rather than in a post step, so a lab that fails later still fills the
+  cache. Every `apt-get` runs under `sudo timeout --kill-after=30`; `fetch` gives the update (60 s)
+  and the download (120 s) one more try (60 s and 240 s) after `drop_first_mirror` takes the lowest
+  `priority:` lines out of `/etc/apt/apt-mirrors.txt`, once per job (the original is kept as
+  `…/apt-mirrors.txt.orig`). No second update is needed: apt names the package lists after the
+  mirror list's path (`_etc_apt_apt-mirrors.txt_dists_…`), not after its mirrors. 10 minutes of apt
+  at most; a healthy runner needs about 15 s.
 - Platform key names for `docker` follow molecule-plugins' docker driver so consumers' existing
   `platforms:` carry over. Keep that true when adding keys.
 - **The Windows lab roles follow Ansible's module principles (owner rule, 2026-11-01).** A task
@@ -131,8 +147,9 @@ ansible-runtime's
   wiki and projects off. Actions are SHA-pinned; `.github/dependabot.yml` keeps them current.
 - Every CI job sets `timeout-minutes` (2026-11-01): GitHub's default is 6 hours, and a stalled
   install would hold the runner that long. `ci.yml`'s jobs get 15 (30 for Molecule), several times
-  their slowest green run; `windows-lab`'s scenario jobs keep 120 and its `lifecycle` job gets 15. A
-  new job needs one too.
+  their slowest green run; `windows-lab`'s scenario jobs keep 120 and its `lifecycle` job gets 20
+  (15 until 0.5.1: about a minute normally, but setup-molecule's apt alone can take 10 when a
+  mirror is slow). A new job needs one too.
 - Pushes go over SSH (`git@github.com:`): the `gh` token has no `workflow` scope, so HTTPS pushes
   that touch `.github/workflows/` are refused.
 
@@ -229,6 +246,28 @@ ansible-runtime's
   setup-molecule's `lab-dir` only creates the directory.
   A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
   unconfirmed), so read the step's log the first time a run lands on one.
+- **To apt, a crawling mirror isn't a failing one.** GitHub's Ubuntu runners read their mirrors from
+  `/etc/apt/apt-mirrors.txt` (`mirror+file:` sources): `http://azure.archive.ubuntu.com/ubuntu/`
+  at `priority:1`, then `https://archive.ubuntu.com/ubuntu/` and
+  `https://security.ubuntu.com/ubuntu/` (the same Canonical servers). apt's mirror method
+  (`methods/mirror.cc`) tries the lowest priority first and moves on only when a download fails.
+  On 2026-11-05 from 18:43 UTC, every westus2 runner got QEMU's `.deb`s from the Azure mirror at
+  about 40 kB/s while `apt-get update` from the same host took a second: 8 lab jobs hit 0.5.0's
+  8-minute limit (5 in windows' `domain-lab`, 3 `windows_vm lifecycle` jobs here) and 3 got
+  through in 7 to 8 minutes; that morning westus2 had taken 2 to 3 s, and 76 jobs in other
+  regions took 0 to 16 s. apt's own `Acquire::http::Timeout` counts only silence, and apt has no
+  minimum speed (`Dl-Limit` is a cap), so tuning apt can't catch a crawl: hence setup-molecule's
+  cache, its short first limits, and the retry without the first mirror (0.5.1).
+- **apt takes a `.deb` already in its archives directory on its size alone.** apt 2.8.3's
+  `pkgAcqArchive::QueueNext` (`apt-pkg/acquire-item.cc`) marks a file of the right size done with
+  no hash check; apt checks hashes only on what it downloads. In the local test of 0.5.1 a cached
+  `seabios` with one byte changed reached dpkg ("zstd error: Data corruption detected"); a planted
+  `.deb` of the right size would have been installed. So `apt_install.sh` checks each cached file
+  against the SHA256 from the signed package lists (`--print-uris` prints MD5 unless given
+  `-o Acquire::ForceHash=SHA256`) before copying it there.
+- **Docker's `ubuntu` images delete `.deb`s after every dpkg run** (`/etc/apt/apt.conf.d/docker-clean`),
+  so in a container the archives are gone after the install. Runners keep them, but
+  `apt_install.sh` copies the downloaded files for the cache before installing either way.
 - **Jinja's `'\n'` stays a literal backslash-n in an Ansible template** (ansible-core 2.21.5, seen in
   the first-boot failure message). In a folded block (`>-`), a blank line is what makes a newline.
 - **Installing this collection from a checkout downloads its dependencies.** `ansible-galaxy
@@ -248,7 +287,7 @@ ansible-runtime's
   collection directory. `image_collections.sh` asks Python for `ansible_collections.__path__`, which
   holds only the directories on `sys.path`.
 
-## Verified (2026-10-31 to 2026-11-02)
+## Verified (2026-10-31 to 2026-11-06)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -365,6 +404,39 @@ ansible-runtime's
   - isc `windows-dc`: isc PR #34, merged as `f28ffd7`; manual run 41524754716, by the ansible-runtime
     maintainer.
   ansible-runtime 1.3.0 (its PR #18, `278adc9`) pins the driver at `fe24140`.
+- 0.5.1, before CI (2026-11-05): `apt_install.sh` and the action's four QEMU steps, run as GitHub
+  runs a step (`bash -eo pipefail`) in an amd64 `ubuntu:24.04` container set up like a runner
+  (`mirror+file:` sources, the runner's 144-byte mirror list, a passwordless-sudo `runner` user;
+  a host directory stood in for actions/cache). The container needs 38 files (23.6 MB), a runner
+  16 (18.6 MB). A miss downloaded them, output the key and left them for the cache; a hit said
+  "From the cache: 38 of 38 files" and "Need to get 0 B/23.6 MB of archives"; a cached `seabios`
+  with one byte changed got the warning, only it was downloaded again (175 kB), and the good copy
+  went back for the cache. With incoming port 80 policed to about 43 kB/s (`tc` ingress,
+  `police rate 320kbit burst 128k mtu 64k`; without `mtu 64k` it drops every GRO packet and
+  nothing arrives) once the download started, the first try held 4.6 MB at its 120 s limit, the
+  Azure mirror was dropped, and the second try got "Need to get 19.0 MB/23.6 MB" from
+  archive.ubuntu.com in a second. Policed from the start, with the package lists removed (a
+  runner's are a week old), the update timed out at 60 s and ran again from archive.ubuntu.com
+  in 3 s, with the same cache key. With port 443 policed too once the download started, the
+  second timeout kept archive.ubuntu.com ("Trying the same mirrors again.") and the step
+  failed after 240 more seconds with the `::error::`, rc 124. shellcheck 0.11.0, actionlint 1.7.13
+  and yamllint 1.38.0 are clean.
+- 0.5.1 on a slow mirror for real (PR #27's first run, [42165110725](https://github.com/git-cgallagher/ansible-collection-molecule/actions/runs/42165110725),
+  2026-11-06). A TEMP job meant to police port 80 landed in westus2 while its Azure mirror was
+  crawling, and its `tc filter add … police …` failed on the runner's kernel ("RTNETLINK answers:
+  Invalid argument", in every TEMP job; Docker Desktop's kernel took the same command), so it met
+  the real thing. `apt-get update` from the same host took a second; the download didn't (1.5 MB
+  `ipxe-qemu` in 39 s), and at 120 s the action warned, dropped the Azure mirror (the list went
+  from 144 to 93 bytes) and the second try said "Need to get 15.4 MB/18.6 MB of archives" and
+  "Fetched 14.1 MB in 2s (8206 kB/s)" from archive.ubuntu.com. QEMU installed, the cache was
+  saved, and the job passed, 2 min 15 s after the step began. The runner's mirror list was the
+  one reconstructed above. The `lifecycle` job (westus3) missed the cache, fetched 18.6 MB in a
+  second, and logged "Failed to save: Unable to reserve cache with key …, another job may be
+  creating this cache" as info, not a warning: a scenario job had saved that key 5 s earlier.
+  The next run on the PR (42165555607) restored it: its `lifecycle` job (centralus) said "Cache
+  restored from key: setup-molecule-apt-ubuntu24-7eb9f46202f586b8", "From the cache: 16 of 16
+  files" and "Need to get 0 B/18.6 MB of archives", skipped the save, and was done with QEMU in
+  11 s.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 

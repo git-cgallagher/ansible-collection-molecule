@@ -1,7 +1,35 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 (2026-11-06)
 
+setup-molecule's QEMU install no longer fails a lab job on a slow Ubuntu mirror. Since 2026-11-01,
+8 lab jobs failed with "apt-get install didn't finish in 8 minutes": 5 in ansible-collection-windows'
+`domain-lab` and 3 of this repository's `windows_vm lifecycle` jobs. All 8 ran on 2026-11-05 in
+Azure's westus2, where the runners' first mirror, azure.archive.ubuntu.com, sent QEMU's 18.6 MB of
+`.deb`s at about 40 kB/s: every westus2 job from 18:43 UTC that day crawled, and the 3 that got
+through took 7 min 9 s to 7 min 46 s, where westus2 had taken 2 to 3 s that morning. 76 jobs in
+other regions took 0 to 16 s, and `apt-get update` from the same host took a second everywhere.
+apt's mirror list moves to the next mirror when a download fails, not when it crawls.
+
+- **QEMU's packages come from the actions cache** when it has them
+  (`actions/cache/restore` and `/save` v6.1.0). The key is the exact files apt would download
+  after `apt-get update` (their names and SHA256s), so a hit downloads nothing, and a new QEMU
+  build, or a runner image that needs other files, misses. After a miss the action saves the
+  files right away, not at the end of the job, so a lab that fails later still fills the cache.
+- **Each cached file must match its SHA256 in the signed package lists** before apt sees it: apt
+  takes a file already in its archives directory on its size alone (`apt-pkg/acquire-item.cc`),
+  so a corrupted or planted file of the right size would otherwise reach dpkg. A file that
+  doesn't match gets a warning and is downloaded.
+- **A slow mirror gets dropped.** Every `apt-get` has its own time limit: update 1 min, download
+  2 min, install 2 min, the download now separate from the install
+  (`--download-only`, then `--no-download`), so a timeout never interrupts dpkg. An update or a
+  download that times out gets one more try (1 and 4 min) after the action takes the mirror apt
+  tried first out of `/etc/apt/apt-mirrors.txt`, which on GitHub's runners leaves
+  archive.ubuntu.com first; what the first try downloaded stays. 10 minutes of apt at most, down
+  from 11; a healthy runner needs about 15 s. The logic is in
+  `.github/actions/setup-molecule/apt_install.sh`.
+- CI: `windows-lab`'s `windows_vm lifecycle` job gets 20 minutes instead of 15, room for
+  setup-molecule's 10 minutes of apt plus the image pull and the test's own 5.
 - CI: `windows-lab`'s scenario jobs make room for the lab on runners short of disk, with the same
   "Make room for the lab" step as the consumers' Windows labs (ansible-collection-windows PR #63,
   for its issue #62). Some `ubuntu-latest` runners come up with 15.7 GB free on `/`, which holds
