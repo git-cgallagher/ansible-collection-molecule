@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 (2026-11-05)
+## 0.5.1 (2026-11-06)
 
 setup-molecule's QEMU install no longer fails a lab job on a slow Ubuntu mirror. Since 2026-11-01,
 8 lab jobs failed with "apt-get install didn't finish in 8 minutes": 5 in ansible-collection-windows'
