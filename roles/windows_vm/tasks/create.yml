@@ -73,6 +73,8 @@
     windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
     windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
     windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    windows_vm_qmp: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qmp.sock"
+    windows_vm_stall_marker: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.stalled"
     windows_vm_qemu_log: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qemu.log"
     # WinRM for Ansible, on a 127.0.0.1 high port so nothing needs root.
     windows_vm_hostfwds: ["hostfwd=tcp:127.0.0.1:{{ molecule_platform.winrm_port }}-:5985"]
@@ -210,17 +212,26 @@
 # discards QEMU's output and exit status: its log records what QEMU printed and
 # how it stopped, and ready.yml shows it when a VM dies. -no-shutdown keeps a
 # guest that powers off in QEMU, with its monitor up for the screendump; a
-# host signal (destroy's kill) still ends QEMU.
+# host signal (destroy's kill) still ends QEMU. The supervisor's watchdog uses
+# a QMP socket of its own, so it never holds the monitor the first-boot poll
+# and the vm-screendump action use (QEMU serves one client per socket).
 - name: Start the VM
   ansible.builtin.command:
     expand_argument_vars: false
     argv: >-
       {{ [ansible_playbook_python, role_path ~ '/files/qemu_supervisor.py',
-          '--log', windows_vm_qemu_log, '--wait-for', windows_vm_pidfile, '--wait-for', windows_vm_monitor, '--',
+          '--log', windows_vm_qemu_log, '--wait-for', windows_vm_pidfile, '--wait-for', windows_vm_monitor,
+          '--wait-for', windows_vm_qmp]
+         + (['--watch-qmp', windows_vm_qmp, '--watch-port', molecule_platform.winrm_port | string,
+             '--watch-prefix', windows_vm_dir ~ '/' ~ molecule_platform.name, '--watch-marker', windows_vm_stall_marker,
+             '--watch-timeout', windows_vm_watchdog_timeout | string,
+             '--watch-nmi-wait', '60' if windows_vm_watchdog_nmi | bool else '0']
+            if windows_vm_watchdog_timeout | int > 0 else [])
+         + ['--',
           'qemu-system-x86_64',
           '-name', windows_vm_name_prefix ~ '-' ~ molecule_platform.name,
           '-machine', 'type=pc,accel=kvm',
-          '-cpu', 'host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time',
+          '-cpu', windows_vm_cpu,
           '-smp', molecule_platform.cpus | default(2) | string,
           '-m', (molecule_platform.memory_mb | default(4096) | string) ~ 'M',
           '-rtc', 'base=localtime',
@@ -230,6 +241,7 @@
          + (windows_vm_lab_nics | map(attribute='qemu_args') | flatten)
          + ['-display', 'none',
             '-monitor', 'unix:' ~ windows_vm_monitor ~ ',server,nowait',
+            '-qmp', 'unix:' ~ windows_vm_qmp ~ ',server,nowait',
             '-pidfile', windows_vm_pidfile,
             '-no-shutdown'] }}
   changed_when: true

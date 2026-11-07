@@ -189,6 +189,7 @@ jobs:
           path: |
             ${{ env.MOLECULE_LAB_DIR }}/*-screen.ppm
             ${{ env.MOLECULE_LAB_DIR }}/*-qemu.log
+            ${{ env.MOLECULE_LAB_DIR }}/host-info.txt
           if-no-files-found: ignore
           retention-days: 7
 
