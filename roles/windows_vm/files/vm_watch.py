@@ -216,10 +216,39 @@ def vcpu_stats(qmp: Qmp) -> dict[str, dict[str, object]]:
     return stats
 
 
-def capture(qmp_path: str, pid: int, prefix: str, nmi_wait: float = 0.0, sample: float = 5.0) -> list[str]:
-    """What QEMU can still tell about the guest, as log lines. The screen first:
-    its clock dates the stall. Commands that need a vCPU to stop (registers,
-    APIC) come last: a vCPU stuck in the host kernel would block them."""
+def busy_lines(cpus: list, before: dict, after: dict, seconds: float, stats_before=None, stats_after=None) -> list[str]:
+    """Each vCPU thread's state, CPU use and wait channel across `seconds`, with
+    KVM's counters over the same time when there are any."""
+    hertz = os.sysconf("SC_CLK_TCK")
+    lines = []
+    for index, tid, path in cpus:
+        state, ticks, wchan = after[tid]
+        busy = 100.0 * (ticks - before[tid][1]) / hertz / seconds
+        counters = []
+        for name in VCPU_STATS:
+            old = (stats_before or {}).get(path, {}).get(name)
+            new = (stats_after or {}).get(path, {}).get(name)
+            if isinstance(new, int) and isinstance(old, int):
+                counters.append(f"{name} {new}" if name == "blocking" else f"{name} +{new - old}")
+        kvm = f"; KVM over {seconds:g} s: {', '.join(counters) or 'no counters'}" if stats_after is not None else ""
+        lines.append(f"vCPU {index} (thread {tid}): state {state}, {busy:.0f}% CPU over {seconds:g} s, waiting in {wchan}{kvm}")
+    return lines
+
+
+def capture(qmp_path: str, pid: int, prefix: str, port: int, nmi_wait: float = 0.0,
+            sample: float = 5.0, kick_wait: float = 15.0) -> list[str]:
+    """What QEMU can still tell about the guest, as log lines, in three steps.
+
+    1. Without disturbing the vCPUs: the screen (its clock dates the stall), the
+       run state, each vCPU thread's state and CPU use over a few seconds with
+       KVM's counters, the disk and the user-network connections.
+    2. Each vCPU's registers and local APIC. Reading them stops the vCPU for a
+       moment (QEMU kicks its thread out of KVM_RUN), so it comes last: a vCPU
+       stuck in the host kernel would block it. That kick alone revives a guest
+       whose vCPU missed a wakeup, so the disk and WinRM are sampled again
+       kick_wait seconds later.
+    3. With nmi_wait, if the guest is still stuck: an NMI, and a second screen
+       nmi_wait seconds later (a guest that can still run code bugchecks)."""
     lines: list[str] = []
     screen = f"{prefix}-stalled-screen.ppm"
     try:
@@ -233,43 +262,40 @@ def capture(qmp_path: str, pid: int, prefix: str, nmi_wait: float = 0.0, sample:
             stats_before = vcpu_stats(qmp)
             time.sleep(sample)
             after = {tid: thread_sample(pid, tid) for _index, tid, _path in cpus}
-            stats_after = vcpu_stats(qmp)
-            hertz = os.sysconf("SC_CLK_TCK")
-            for index, tid, path in cpus:
-                state, ticks, wchan = after[tid]
-                busy = 100.0 * (ticks - before[tid][1]) / hertz / sample
-                counters = []
-                for name in VCPU_STATS:
-                    old, new = stats_before.get(path, {}).get(name), stats_after.get(path, {}).get(name)
-                    if isinstance(new, int) and isinstance(old, int):
-                        counters.append(f"{name} {new}" if name == "blocking" else f"{name} +{new - old}")
-                lines.append(f"vCPU {index} (thread {tid}): state {state}, {busy:.0f}% CPU over {sample:g} s, "
-                             f"waiting in {wchan}; KVM over {sample:g} s: {', '.join(counters) or 'no counters'}")
-            lines.append(f"disk operations: {disk_operations(qmp)}")
+            lines.extend(busy_lines(cpus, before, after, sample, stats_before, vcpu_stats(qmp)))
+            disk = disk_operations(qmp)
+            lines.append(f"disk operations: {disk}")
             lines.extend("user network: " + line for line in qmp.hmp("info usernet").splitlines() if line.strip())
+            before = {tid: thread_sample(pid, tid) for _index, tid, _path in cpus}
             for index, _tid, _path in cpus:
                 registers = qmp.hmp("info registers", cpu=index)
-                keep = re.findall(r"RIP=\S+|RFL=\S+ \[[^\]]*\]|CPL=\d|II=\d|HLT=\d", registers)
+                keep = re.findall(r"[RE]IP=\S+|[RE]FL=\S+ \[[^\]]*\]|CPL=\d|II=\d|HLT=\d", registers)
                 lines.append(f"vCPU {index} registers: {' '.join(keep)}")
                 lines.extend(f"vCPU {index} APIC: {line.strip()}" for line in qmp.hmp("info lapic", cpu=index).splitlines()
                              if line.strip() and not line.startswith("dumping"))
-            if nmi_wait > 0:
+        time.sleep(kick_wait)
+        answered = port_answers(port, timeout=5)
+        with Qmp(qmp_path, timeout=20) as qmp:
+            moved = disk_operations(qmp) - disk
+        after = {tid: thread_sample(pid, tid) for _index, tid, _path in cpus}
+        revived = bool(answered) or moved != 0
+        lines.append(f"{kick_wait:g} s after its vCPUs were stopped for their registers: {moved} disk operations, "
+                     f"WinRM {'answered' if answered else 'silent'}: "
+                     + ("the guest moves again" if revived else "still stuck"))
+        lines.extend(busy_lines(cpus, before, after, kick_wait + 1))
+        if nmi_wait > 0 and not revived:
+            with Qmp(qmp_path, timeout=20) as qmp:
                 qmp.command("inject-nmi")
-                lines.append(f"injected an NMI; a guest that can still run code bugchecks (screen in {nmi_wait:g} s)")
-    except Exception as error:  # pylint: disable=broad-exception-caught
-        # A partial capture beats none: say where it stopped (a socket timeout
-        # here can mean a vCPU stuck in the host kernel).
-        lines.append(f"capture stopped: {type(error).__name__}: {error}")
-        return lines
-    if nmi_wait > 0:
-        time.sleep(nmi_wait)
-        try:
+            lines.append(f"injected an NMI; a guest that can still run code bugchecks (screen in {nmi_wait:g} s)")
+            time.sleep(nmi_wait)
             with Qmp(qmp_path, timeout=20) as qmp:
                 qmp.command("screendump", filename=f"{prefix}-nmi-screen.ppm")
                 lines.append(f"screen after the NMI: {prefix}-nmi-screen.ppm, "
                              f"status {json.dumps(qmp.command('query-status'))}, disk operations {disk_operations(qmp)}")
-        except Exception as error:  # pylint: disable=broad-exception-caught
-            lines.append(f"no screen after the NMI: {type(error).__name__}: {error}")
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        # A partial capture beats none: say where it stopped (a socket timeout
+        # here can mean a vCPU stuck in the host kernel).
+        lines.append(f"capture stopped: {type(error).__name__}: {error}")
     return lines
 
 
@@ -317,7 +343,7 @@ class Watcher:
                    f"127.0.0.1:{self.args.port} since {stamp(self.progress.last_progress)}, while QEMU "
                    "reports it running")
         self.say(verdict)
-        for line in capture(self.args.qmp, self.pid, self.args.prefix, self.args.nmi_wait):
+        for line in capture(self.args.qmp, self.pid, self.args.prefix, self.args.port, self.args.nmi_wait):
             self.log(f"    {line}")
         self.say("end of the capture; still watching")
         with open(self.args.marker, "w", encoding="utf-8") as handle:
@@ -341,7 +367,8 @@ def add_arguments(parser: argparse.ArgumentParser, prefix: str = "") -> None:
     parser.add_argument(f"--{prefix}interval", type=float, default=10, help="seconds between samples")
     parser.add_argument(f"--{prefix}probe-timeout", type=float, default=10, help="seconds the WinRM probe waits")
     parser.add_argument(f"--{prefix}nmi-wait", type=float, default=0,
-                        help="after a capture, inject an NMI and take another screen this many seconds later (0: no NMI)")
+                        help="after a capture that leaves the guest stuck, inject an NMI and take another screen "
+                             "this many seconds later (0: no NMI)")
 
 
 def main() -> int:
@@ -352,7 +379,7 @@ def main() -> int:
     args = parser.parse_args()
     if not args.capture:
         parser.error("only --capture runs on its own; qemu_supervisor.py runs the watcher")
-    for line in capture(args.qmp, args.pid, args.prefix, args.nmi_wait):
+    for line in capture(args.qmp, args.pid, args.prefix, args.port, args.nmi_wait):
         print(line)
     return 0
 

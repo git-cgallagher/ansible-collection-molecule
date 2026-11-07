@@ -197,6 +197,7 @@ expect_log "watchdog: the guest made no progress for" "the verdict" 30
 expect_log "watchdog: end of the capture" "the capture's end" 40
 expect_log "    vCPU 0 (thread" "the vCPU sample"
 expect_log "    vCPU 0 APIC: " "the APIC"
+expect_log "s after its vCPUs were stopped for their registers: 0 disk operations, WinRM silent: still stuck" "the check after the kick"
 expect_log "    injected an NMI" "the NMI"
 expect_log "    screen after the NMI: " "the second screen"
 expect_file "$dir/vm-stalled-screen.ppm" "the screen at the verdict"
