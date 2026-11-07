@@ -40,12 +40,13 @@ poll() {
     --pidfile "$pid" --monitor "$mon" --stalled "$marker" --deadline "${1:-4102444800}"
 }
 
-# A QEMU whose supervisor watches it: a stall after 12 s without progress,
-# sampled every 2 s, and an NMI 2 s after the capture.
+# A QEMU whose supervisor watches it: its vCPUs interrupted after 4 s without
+# progress, a stall after 12 s, sampled every 2 s, and an NMI 2 s after the
+# capture.
 watched() {
   "$python" "$files/qemu_supervisor.py" --log "$log" --wait-for "$pid" --wait-for "$mon" --wait-for "$qmp" \
     --watch-qmp "$qmp" --watch-port "$port" --watch-prefix "$dir/vm" --watch-marker "$marker" \
-    --watch-timeout 12 --watch-interval 2 --watch-probe-timeout 2 --watch-nmi-wait 2 -- \
+    --watch-timeout 12 --watch-interval 2 --watch-probe-timeout 2 --watch-kick-after 4 --watch-nmi-wait 2 -- \
     qemu-system-x86_64 -machine pc,accel=kvm:tcg -m 128 -display none -no-shutdown -net none \
     -monitor "unix:$mon,server,nowait" -qmp "unix:$qmp,server,nowait" -pidfile "$pid"
 }
@@ -187,12 +188,18 @@ if grep -q "made no progress" "$log"; then
   cat "$log"
   exit 1
 fi
-echo "no verdict in 16 s while the stand-in answers"
+if grep -q "interrupted the vCPUs" "$log"; then
+  echo "::error::the watchdog interrupted the vCPUs of a guest whose WinRM answers"
+  cat "$log"
+  exit 1
+fi
+echo "no verdict and no interruption in 16 s while the stand-in answers"
 expect 3 "poll: running, no verdict" poll
 
 echo "== silence for 12 s is a stall: the verdict, the capture, the marker, the poll's rc 13"
 kill "$listener"
 listener=
+expect_log "watchdog: no progress for [0-9]* s; interrupted the vCPUs" "the early interruption" 20
 expect_log "watchdog: the guest made no progress for" "the verdict" 30
 expect_log "watchdog: end of the capture" "the capture's end" 40
 expect_log "    vCPU 0 (thread" "the vCPU sample"

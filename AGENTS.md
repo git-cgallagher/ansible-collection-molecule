@@ -68,6 +68,26 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   windows_vm's `ready`), then WinRM. rc 10 (QEMU gone), 11 (guest stopped) and 12 (deadline) end the
   until loop at once; 0 is ready; 3, or a hung attempt's 124, polls again. `.github/ci/windows_vm_lifecycle.sh`
   (windows-lab's `lifecycle` job) checks each of those answers but "ready" against a disk-less QEMU.
+- **windows_vm watchdog (0.6.0).** The supervisor also watches its guest (`files/vm_watch.py`) on a
+  QMP socket of its own, `<platform>-qmp.sock`: QEMU serves one client per monitor socket, so the
+  HMP one stays free for the first-boot poll and `vm-screendump`. Every 10 s it reads the drives'
+  I/O counts (`query-blockstats`) and sends an HTTP request through the WinRM forward, which a live
+  guest answers within milliseconds (a reply, or a reset when nothing listens) and a stopped one
+  never does (slirp accepts on the host side either way, so only a reply or a reset counts).
+  `windows_vm_watchdog_timeout` (180) seconds of neither is a stall: the verdict and a capture go
+  to `<platform>-qemu.log`, and `<platform>.stalled` ends the first-boot wait (rc 13). The capture
+  takes the screen first (`<platform>-stalled-screen.ppm`; its clock dates the stall), then each
+  vCPU thread's state, wait channel and CPU use over 5 s with KVM's counters (`query-stats`), the
+  disk and slirp's connections, then each vCPU's registers and local APIC (`info registers`,
+  `info lapic` with `cpu-index`), which stop each vCPU for a moment and so come last. 15 s later it
+  samples the disk and WinRM again: that stop alone revives a guest whose vCPU missed a wakeup.
+  `windows_vm_watchdog_nmi` then sends a still-stuck guest an NMI and takes `<platform>-nmi-screen.ppm`
+  a minute later. The watchdog only reports, and never stops QEMU or the supervisor: its loop
+  catches everything. At QEMU's exit it logs the longest stretch without progress (the margin
+  the timeout had); windows-lab's "Show the watchdog's notes" prints those lines after destroy.
+  Each QEMU log starts with `host: kernel …, clocksource …, CPU …`, and setup-molecule's "Record
+  the host" step (`host_info.sh`) prints the rest, Azure VM size included (instance metadata
+  answers on GitHub's runners).
 - **setup-molecule's collections (0.5.0).** With `collections-image`,
   `.github/actions/setup-molecule/image_collections.sh` asks the image for its `ansible_collections`
   directory (`ansible_collections.__path__` in the image's Python: ansible-runtime installs them in

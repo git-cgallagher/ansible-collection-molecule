@@ -197,6 +197,15 @@ jobs:
         if: always()
         run: molecule destroy -s ${{ matrix.scenario }}
 
+      # The driver's watchdog notes the longest stretch each guest went without
+      # progress when its QEMU stops (destroy): the margin its timeout
+      # (windows_vm_watchdog_timeout) had on a run, green or not.
+      - name: Show the watchdog's notes
+        if: always()
+        timeout-minutes: 1
+        run: |
+          grep -h -a -E 'qemu-supervisor: (host|watchdog):' "$MOLECULE_LAB_DIR"/*-qemu.log || true
+
   lifecycle:
     name: windows_vm lifecycle
     runs-on: ubuntu-latest

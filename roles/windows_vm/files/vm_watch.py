@@ -308,6 +308,9 @@ class Watcher:
         self.log = log
         self.progress = Progress(args.timeout, time.time())
         self.errors = 0
+        # The silence (its start) during which the vCPUs were interrupted, and when.
+        self.kicked: float | None = None
+        self.kicked_at = 0.0
         for stale in (args.marker, f"{args.prefix}-stalled-screen.ppm", f"{args.prefix}-nmi-screen.ppm"):
             if os.path.lexists(stale):
                 os.remove(stale)
@@ -330,7 +333,17 @@ class Watcher:
             return
         self.errors = 0
         answered = port_answers(self.args.port, timeout=self.args.probe_timeout) if is_running else None
-        event = self.progress.update(time.time(), is_running, disk, answered)
+        silent_since = self.progress.last_progress
+        now = time.time()
+        event = self.progress.update(now, is_running, disk, answered)
+        if self.kicked is not None and self.progress.last_progress != silent_since:
+            if self.kicked == silent_since and is_running:
+                self.say(f"the guest moves again {now - self.kicked_at:.0f} s after its vCPUs were interrupted "
+                         f"({now - silent_since:.0f} s without progress)")
+            self.kicked = None
+        if (event is None and is_running and self.args.kick_after > 0 and self.kicked is None
+                and not self.progress.stalled and now - self.progress.last_progress >= self.args.kick_after):
+            self.kick(now - self.progress.last_progress)
         if event is None:
             return
         kind, seconds = event
@@ -349,6 +362,19 @@ class Watcher:
         with open(self.args.marker, "w", encoding="utf-8") as handle:
             handle.write(f"{stamp()} {verdict}\n")
 
+    def kick(self, silence: float) -> None:
+        """Interrupt every vCPU (reading its registers makes QEMU kick its thread
+        out of KVM_RUN): a guest whose vCPU missed a wakeup moves again."""
+        self.kicked, self.kicked_at = self.progress.last_progress, time.time()
+        try:
+            with Qmp(self.args.qmp, timeout=20) as qmp:
+                for cpu in qmp.command("query-cpus-fast") or []:  # type: ignore[union-attr]
+                    qmp.hmp("info registers", cpu=cpu["cpu-index"])
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            self.say(f"no progress for {silence:.0f} s; interrupting the vCPUs failed: {type(error).__name__}: {error}")
+            return
+        self.say(f"no progress for {silence:.0f} s; interrupted the vCPUs")
+
     def finish(self) -> None:
         """The margin the timeout had on this run, for whoever tunes it."""
         progress = self.progress
@@ -366,6 +392,8 @@ def add_arguments(parser: argparse.ArgumentParser, prefix: str = "") -> None:
     parser.add_argument(f"--{prefix}timeout", type=float, default=180, help="seconds without progress (0: never judge)")
     parser.add_argument(f"--{prefix}interval", type=float, default=10, help="seconds between samples")
     parser.add_argument(f"--{prefix}probe-timeout", type=float, default=10, help="seconds the WinRM probe waits")
+    parser.add_argument(f"--{prefix}kick-after", type=float, default=0,
+                        help="seconds without progress after which the vCPUs are interrupted once (0: never)")
     parser.add_argument(f"--{prefix}nmi-wait", type=float, default=0,
                         help="after a capture that leaves the guest stuck, inject an NMI and take another screen "
                              "this many seconds later (0: no NMI)")
