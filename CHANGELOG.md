@@ -21,7 +21,8 @@ every Azure region the runners came from, and a re-run passed each time. So it w
   the user-network connections, then each vCPU's registers and local APIC, and whether the guest
   moved again once its vCPUs were interrupted to read them. It only reports; the VM keeps running.
 - **A stall during the first boot ends the wait at once** (`first_boot_poll.py` rc 13), with the
-  watchdog's verdict in the failure, instead of the 30-minute deadline.
+  watchdog's verdict in the failure, instead of the 30-minute deadline. The VMs are waited for in
+  order, so a stall on a later VM ends the wait when that VM's turn comes.
 - **`windows_vm_watchdog_nmi`** (off): after the capture, an NMI to a guest that is still stuck and
   a second screen 15 s later (`<platform>-nmi-screen.ppm`). A guest that can still run code
   bugchecks; for investigating a stall.

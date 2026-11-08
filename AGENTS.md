@@ -75,7 +75,9 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   guest answers within milliseconds (a reply, or a reset when nothing listens) and a stopped one
   never does (slirp accepts on the host side either way, so only a reply or a reset counts).
   `windows_vm_watchdog_timeout` (180) seconds of neither is a stall: the verdict and a capture go
-  to `<platform>-qemu.log`, and `<platform>.stalled` ends the first-boot wait (rc 13). The capture
+  to `<platform>-qemu.log`, and `<platform>.stalled` ends the first-boot wait (rc 13); `ready`
+  waits for the VMs in order, so a stall on a later VM ends it when that VM's turn comes (in the
+  soak, vm3's verdict waited while vm1 sat at the Setup dialog to the deadline). The capture
   takes the screen first (`<platform>-stalled-screen.ppm`; its clock dates the stall), then each
   vCPU thread's state, wait channel and CPU use over 5 s with KVM's counters (`query-stats`), the
   disk and slirp's connections, then each vCPU's registers and local APIC (`info registers`,
