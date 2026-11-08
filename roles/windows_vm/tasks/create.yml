@@ -225,7 +225,7 @@
          + (['--watch-qmp', windows_vm_qmp, '--watch-port', molecule_platform.winrm_port | string,
              '--watch-prefix', windows_vm_dir ~ '/' ~ molecule_platform.name, '--watch-marker', windows_vm_stall_marker,
              '--watch-timeout', windows_vm_watchdog_timeout | string,
-             '--watch-nmi-wait', '60' if windows_vm_watchdog_nmi | bool else '0']
+             '--watch-nmi-wait', '15' if windows_vm_watchdog_nmi | bool else '0']
             if windows_vm_watchdog_timeout | int > 0 else [])
          + ['--',
           'qemu-system-x86_64',

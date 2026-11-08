@@ -38,10 +38,8 @@ import time
 # The WinRM probe: any reply, or the guest closing the connection, is an answer.
 PROBE = b"GET /wsman HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
-# KVM's per-vCPU counters worth comparing across a few seconds of a stall.
-VCPU_STATS = ("exits", "halt_exits", "halt_wakeup", "irq_injections", "nmi_injections",
-              "irq_window_exits", "irq_exits", "hypercalls", "io_exits", "mmio_exits",
-              "insn_emulation", "blocking")
+# KVM's per-vCPU counters (query-stats) that are levels, not counts.
+VCPU_LEVELS = ("blocking", "guest_mode")
 
 
 def stamp(when: float | None = None) -> str:
@@ -224,12 +222,14 @@ def busy_lines(cpus: list, before: dict, after: dict, seconds: float, stats_befo
     for index, tid, path in cpus:
         state, ticks, wchan = after[tid]
         busy = 100.0 * (ticks - before[tid][1]) / hertz / seconds
-        counters = []
-        for name in VCPU_STATS:
-            old = (stats_before or {}).get(path, {}).get(name)
-            new = (stats_after or {}).get(path, {}).get(name)
-            if isinstance(new, int) and isinstance(old, int):
-                counters.append(f"{name} {new}" if name == "blocking" else f"{name} +{new - old}")
+        # Every counter that moved, biggest first (which exits, which injections),
+        # and the levels as they stand.
+        old_stats, new_stats = (stats_before or {}).get(path, {}), (stats_after or {}).get(path, {})
+        moved = sorted(((new - old_stats[name], name) for name, new in new_stats.items()
+                        if name not in VCPU_LEVELS and isinstance(new, int) and isinstance(old_stats.get(name), int)
+                        and new != old_stats[name]), reverse=True)
+        counters = [f"{name} +{delta}" for delta, name in moved]
+        counters += [f"{name} {new_stats[name]}" for name in VCPU_LEVELS if isinstance(new_stats.get(name), (int, bool))]
         kvm = f"; KVM over {seconds:g} s: {', '.join(counters) or 'no counters'}" if stats_after is not None else ""
         lines.append(f"vCPU {index} (thread {tid}): state {state}, {busy:.0f}% CPU over {seconds:g} s, waiting in {wchan}{kvm}")
     return lines

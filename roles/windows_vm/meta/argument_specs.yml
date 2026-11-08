@@ -60,7 +60,7 @@ argument_specs:
         type: bool
         default: false
         description:
-          - After a stall's capture, inject an NMI and take another screen a minute later
+          - After a stall's capture, inject an NMI and take another screen 15 s later
             (C(<platform>-nmi-screen.ppm)). A guest that can still run code bugchecks, so this ends the guest; for
             investigating a stall.
   create:

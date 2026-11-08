@@ -33,7 +33,7 @@ windows_vm_cpu: host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
 # wait at once. It only reports: the VM keeps running. 0 turns it off.
 windows_vm_watchdog_timeout: 180
 
-# After a stall's capture, inject an NMI and take a second screen a minute
-# later (<platform>-nmi-screen.ppm): a guest that can still run code bugchecks.
+# After a stall's capture, inject an NMI and take a second screen 15 s later
+# (<platform>-nmi-screen.ppm): a guest that can still run code bugchecks.
 # For investigating a stall; it ends the guest, so it is off by default.
 windows_vm_watchdog_nmi: false
