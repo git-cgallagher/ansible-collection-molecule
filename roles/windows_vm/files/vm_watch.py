@@ -244,9 +244,10 @@ def capture(qmp_path: str, pid: int, prefix: str, port: int, nmi_wait: float = 0
        KVM's counters, the disk and the user-network connections.
     2. Each vCPU's registers and local APIC. Reading them stops the vCPU for a
        moment (QEMU kicks its thread out of KVM_RUN), so it comes last: a vCPU
-       stuck in the host kernel would block it. That kick alone revives a guest
-       whose vCPU missed a wakeup, so the disk and WinRM are sampled again
-       kick_wait seconds later.
+       stuck in the host kernel would block it. Proxmox users report Windows
+       guests on host kernels 7.0.x whose vCPUs come back from such a kick, so
+       the disk and WinRM are sampled again kick_wait seconds later and the
+       capture says whether this one did. (None of the soak's stalls did.)
     3. With nmi_wait, if the guest is still stuck: an NMI, and a second screen
        nmi_wait seconds later (a guest that can still run code bugchecks)."""
     lines: list[str] = []
@@ -364,7 +365,8 @@ class Watcher:
 
     def kick(self, silence: float) -> None:
         """Interrupt every vCPU (reading its registers makes QEMU kick its thread
-        out of KVM_RUN): a guest whose vCPU missed a wakeup moves again."""
+        out of KVM_RUN): if the guest was stuck on a vCPU that missed a wakeup in
+        the host, it moves again. Off unless --kick-after is given."""
         self.kicked, self.kicked_at = self.progress.last_progress, time.time()
         try:
             with Qmp(self.args.qmp, timeout=20) as qmp:

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+A `windows_vm` guest that freezes while QEMU still reports it running is now caught and
+recorded, and every lab records the runner it ran on. The freeze: the guest's screen clock stops,
+its disk is no longer written, and the next WinRM call fails "Read timed out. (read timeout=30)",
+or a reboot never comes back. In ansible-collection-windows' `domain-lab` it failed 16 jobs from
+2026-11-02 to 11-07 (of 771 finished since 10-28): 2 on 11-02, 1 on 11-04, 5 on 11-05, 3 on 11-06
+and 5 on 11-07, about one job in nine that day; and two of this repository's `windows_cluster`
+jobs (11-02 and 11-05). Each guest froze 3 to 13 minutes after its QEMU started, busy or idle, in
+every Azure region the runners came from, and a re-run passed each time. So it wasn't new on
+11-07, only more frequent.
+
+- **A watchdog for every `windows_vm`.** The QEMU supervisor watches its guest on a QMP socket of
+  its own (`<platform>-qmp.sock`; `roles/windows_vm/files/vm_watch.py`): every 10 s, the drives'
+  I/O counts and an HTTP request through the WinRM forward, which a live guest answers at once.
+  `windows_vm_watchdog_timeout` seconds of neither (180; `0` turns it off) is a stall. The
+  verdict and a capture go to `<platform>-qemu.log`: the screen (`<platform>-stalled-screen.ppm`,
+  its clock dates the stall), each vCPU thread's state and CPU use with KVM's counters, the disk,
+  the user-network connections, then each vCPU's registers and local APIC, and whether the guest
+  moved again once its vCPUs were interrupted to read them. It only reports; the VM keeps running.
+- **A stall during the first boot ends the wait at once** (`first_boot_poll.py` rc 13), with the
+  watchdog's verdict in the failure, instead of the 30-minute deadline.
+- **`windows_vm_watchdog_nmi`** (off): after the capture, an NMI to a guest that is still stuck and
+  a second screen 15 s later (`<platform>-nmi-screen.ppm`). A guest that can still run code
+  bugchecks; for investigating a stall.
+- **The host on record.** Each QEMU log starts with the host's kernel, clocksource and CPU, and
+  setup-molecule's `kvm: 'true'` adds a "Record the host" step (`host_info.sh`): the runner's Azure
+  VM size and region, CPU, kernel, TSC flags, clocksource, KVM module parameters and the kernel's
+  notes on Hyper-V and the TSC, also in `<lab-dir>/host-info.txt`. GitHub's `ubuntu-latest` runners
+  are a mix: Standard_D4ads_v5 (AMD EPYC 7763), D4ads_v6 (EPYC 9V74), D4ads_v7 (EPYC 9V45) and
+  D4ds_v5 (Intel Xeon Platinum 8573C), all on kernel 7.0.0-1017-azure with the `tsc` clocksource.
+- **`vm-screendump`** prints each log's host line and turns a stall verdict into an error
+  annotation with the capture beside it.
+- **`windows_vm_cpu`**: QEMU's `-cpu` as a role variable. Its default is unchanged: a soak of
+  180 VM-cycles (run 42422630662) tried the two changes the sources suggested, and both made the
+  freeze more frequent. With Hyper-V synthetic timers (`hv_vpindex,hv_runtime,hv_synic,hv_stimer,
+  hv_frequencies`), 4 of 60 VM-cycles stalled. With `tsc-deadline=off`, 5 of 60 stalled, and Windows
+  Setup's "could not configure Windows" dialog came on 4 of 60 first boots. The default had 0
+  stalls and 1 dialog in 60. The freeze isn't fixed: AGENTS.md records what the captures showed
+  and what to try next.
+- CI: the lifecycle test checks the watchdog (no verdict while a stand-in WinRM answers; the
+  verdict, the capture, the marker and rc 13 once it stops; the marker gone once it answers again)
+  against a disk-less QEMU. `windows-lab` uploads `host-info.txt` with its diagnostics and prints
+  the watchdog's notes after destroy, the margin its timeout had on a green run too.
+
 ## 0.5.1 (2026-11-06)
 
 setup-molecule's QEMU install no longer fails a lab job on a slow Ubuntu mirror. Since 2026-11-01,
