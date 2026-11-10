@@ -115,8 +115,8 @@ counters, the registers and local APICs, and whether the guest moved again once 
 interrupted to read them. A stall during the first boot ends the wait at once, and the
 `vm-screendump` action turns a verdict into an error annotation on the run. The watchdog only
 reports: the VM keeps running. With `windows_vm_watchdog_nmi: true` it also sends a guest that is
-still stuck an NMI and takes a second screen 15 s later; a guest that can still run code
-bugchecks, so that's for investigating a stall. Each QEMU log starts with the host's kernel,
+still stuck an NMI and takes a second screen 15 s later, for investigating a stall (in a soak,
+half the guests resumed after it and half rebooted). Each QEMU log starts with the host's kernel,
 clocksource and CPU, and setup-molecule's `kvm: 'true'` records the rest of the runner (its Azure VM
 size, TSC flags, KVM parameters and Hyper-V build). `windows_vm_cpu` is QEMU's `-cpu` for every VM
 (the host's CPU plus Hyper-V enlightenments).

@@ -24,8 +24,9 @@ every Azure region the runners came from, and a re-run passed each time. So it w
   watchdog's verdict in the failure, instead of the 30-minute deadline. The VMs are waited for in
   order, so a stall on a later VM ends the wait when that VM's turn comes.
 - **`windows_vm_watchdog_nmi`** (off): after the capture, an NMI to a guest that is still stuck and
-  a second screen 15 s later (`<platform>-nmi-screen.ppm`). A guest that can still run code
-  bugchecks; for investigating a stall.
+  a second screen 15 s later (`<platform>-nmi-screen.ppm`), for investigating a stall. Of the
+  eight stuck guests that got one in the 2026-11-07 soak, four resumed where they were and four
+  rebooted; two of those stalled again before Windows loaded.
 - **The host on record.** Each QEMU log starts with the host's kernel, clocksource and CPU, and
   setup-molecule's `kvm: 'true'` adds a "Record the host" step (`host_info.sh`): the runner's Azure
   VM size and region, CPU, kernel, TSC flags, clocksource, KVM module parameters and the kernel's

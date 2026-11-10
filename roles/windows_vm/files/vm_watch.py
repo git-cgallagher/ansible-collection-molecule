@@ -249,7 +249,8 @@ def capture(qmp_path: str, pid: int, prefix: str, port: int, nmi_wait: float = 0
        the disk and WinRM are sampled again kick_wait seconds later and the
        capture says whether this one did. (None of the soak's stalls did.)
     3. With nmi_wait, if the guest is still stuck: an NMI, and a second screen
-       nmi_wait seconds later (a guest that can still run code bugchecks)."""
+       nmi_wait seconds later. In the 2026-11-07 soak, half the guests resumed
+       after it and half rebooted."""
     lines: list[str] = []
     screen = f"{prefix}-stalled-screen.ppm"
     try:
@@ -287,7 +288,7 @@ def capture(qmp_path: str, pid: int, prefix: str, port: int, nmi_wait: float = 0
         if nmi_wait > 0 and not revived:
             with Qmp(qmp_path, timeout=20) as qmp:
                 qmp.command("inject-nmi")
-            lines.append(f"injected an NMI; a guest that can still run code bugchecks (screen in {nmi_wait:g} s)")
+            lines.append(f"injected an NMI (screen in {nmi_wait:g} s)")
             time.sleep(nmi_wait)
             with Qmp(qmp_path, timeout=20) as qmp:
                 qmp.command("screendump", filename=f"{prefix}-nmi-screen.ppm")

@@ -61,8 +61,8 @@ argument_specs:
         default: false
         description:
           - After a stall's capture, inject an NMI and take another screen 15 s later
-            (C(<platform>-nmi-screen.ppm)). A guest that can still run code bugchecks, so this ends the guest; for
-            investigating a stall.
+            (C(<platform>-nmi-screen.ppm)), for investigating a stall. The guest may resume where it was, or
+            reboot; in the 2026-11-07 soak each happened to half of them.
   create:
     short_description: Boot a Windows box under QEMU/KVM and append its entry to C(windows_vm_instances)
     options: *windows_vm_options
