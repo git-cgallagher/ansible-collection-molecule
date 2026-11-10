@@ -330,15 +330,22 @@ ansible-runtime's
   times a second, about half of them external-interrupt exits (`irq_exits`), with no interrupt
   injected and interrupts waiting in its IRR (the clock's vector 0xd1 in most); the other vCPU
   idles in `HLT` with an empty IRR, or spins at TPR 0xc0 with long-spin-wait hypercalls.
-  Stopping the vCPUs for their registers revived none of them. An NMI brought back all 8 guests
-  it was sent to on a first verdict: 4 resumed in place (the lock screen back, its clock caught
-  up) and 4 rebooted, with no bugcheck on any saved screen. Two of the rebooted stalled again
-  about 3 minutes later, before Windows loaded: vCPU 0 in real mode with IF=0 and an empty IRR,
-  still exiting 80,000 to 100,000 times a second, under 1% of them `irq_exits`. The default
-  configuration's freeze was caught twice since (2026-11-10, below); for the next one in a lab,
-  read the watchdog's capture, match its `host:` line and setup-molecule's "Record the host" to
-  the fleet above. One of the 11
-  captures was cut short by the soak destroying its VM mid-capture, not by the VM. No verdict
+  Stopping the vCPUs for their registers revived none of them. An NMI crashed each of the 8
+  guests it was sent to on a first verdict, and each rebooted.
+  - Four were seen rebooting: one into chkdsk, one at the boot logo, and two that stalled again
+    (below).
+  - The other four were back at the lock screen 60 s later, after a reboot's worth of disk I/O:
+    34,000 to 40,000 operations in that minute, as many as the one that rebooted into chkdsk. A
+    reboot fits in that minute, and the RTC gives a rebooted guest the right time.
+  - None is known to have resumed in place. No saved screen of that soak caught the bugcheck
+    itself; soak 2's two NMIs (below) showed one 15 s after.
+
+  Two of the rebooted guests stalled again about 3 minutes later, before Windows loaded: vCPU 0
+  in real mode with IF=0 and an empty IRR, still exiting 80,000 to 100,000 times a second, under
+  1% of them `irq_exits`. The default configuration's freeze was caught twice since (2026-11-10,
+  below); for the next one in a lab, read the watchdog's capture, match its `host:` line and
+  setup-molecule's "Record the host" to the fleet above. One of the 11 captures was cut short
+  by the soak destroying its VM mid-capture, not by the VM. No verdict
   came on any of the other 171 VM-cycles, five of them at the Setup dialog for 30 minutes with
   their disk busy: the margin evidence for the 180 s timeout and rc 13.
   The default's freeze, caught (2026-11-10): the windows collection's `domain-lab` ran three
