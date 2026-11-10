@@ -271,9 +271,10 @@ ansible-runtime's
   setup-molecule's `lab-dir` only creates the directory.
   A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
   unconfirmed), so read the step's log the first time a run lands on one.
-- **A `windows_vm` guest can freeze while QEMU says it runs** (cause found 2026-11-10: a KVM bug
-  on the AMD runners, fixed upstream but not in their kernel, below; 0.6.0 catches and records
-  it). The signs: `vm-screendump` says "VM status: running", but the screen's clock is minutes
+- **A `windows_vm` guest can freeze while QEMU says it runs** (cause found 2026-11-10: an ICEBP
+  #DB loop under the AMD runners' nested KVM, which mainline KVM works around and their kernel
+  doesn't, below; 0.6.0 catches and records it). The signs: `vm-screendump` says "VM status:
+  running", but the screen's clock is minutes
   behind (a lock screen, or "Applying computer settings" after a reboot), the VM's overlay
   (`<platform>.qcow2` in its `ls -la`) stopped being written 3 to 13 minutes after QEMU started,
   while the other VMs' were written within a minute, and the next PSRP call failed "Read timed
@@ -374,14 +375,17 @@ ansible-runtime's
     an immediate exit whenever it injects an exception while vectors wait in the IRR. Hence half
     the exits being `irq_exits`, `req_event` on nearly every exit, and nothing injected.
   - Windows isn't needed to hit it. A 268-line `/dev/kvm` guest that executes `int1` with a handler
-    that only returns hung on 6 of 6 AMD runners, in 64-bit and in real mode (run 42912251442,
-    branch `tmp/icebp-repro`, deleted).
-  - Bare-metal AMD reports the right RIP outside task gates, so the wrong one most likely comes
-    from Hyper-V's nested virtualization. Intel's KVM skips ICEBP itself, hence no freeze on Intel
-    runners.
-  - Mainline Linux fixed it in 7.3: commit `ec9a16c6aeba`, "KVM: SVM: Always intercept ICEBP",
-    May 2026, not marked for stable. The runners' 7.0.0-1017-azure lacks it, and no workaround
-    inside the guest or QEMU is known.
+    that only returns hung on 16 of 16 AMD runners, in 64-bit and in real mode. On 2 of 2 Intel
+    runners it reached its HLT after one #DB, or four with TF set. These were runs 42912251442
+    and 42914030576 on the deleted branch `tmp/icebp-repro`.
+  - Intel's KVM skips ICEBP itself, hence no freeze on Intel runners. For bare-metal AMD, the
+    fix's posting reports only the task-gate case as broken. That suggests, unconfirmed, that the
+    wrong RIP here comes from Hyper-V's nested virtualization.
+  - Mainline Linux works around it since 7.3: commit `ec9a16c6aeba`, "KVM: SVM: Always intercept
+    ICEBP", May 2026, intercepts ICEBP and skips it before injecting #DB. It isn't marked for
+    stable, and the runners' 7.0.0-1017-azure lacks it.
+  - The fix is untested on these hosts. It can only help if Hyper-V forwards L1's ICEBP intercept,
+    and nothing here shows that it does. No workaround inside the guest or QEMU is known.
 
   The rate follows how often Windows runs the probe; why the two candidates raise it is open, and
   soak 1's 0 of 45 with tracing always on was chance. The real-mode re-stalls fit the same loop
@@ -625,9 +629,12 @@ ansible-runtime's
     - The NMI then bugchecked both guests (stop codes 0x80 and 0x109). Each wrote its dump, which
       the watchdog logged as "making progress again", and rebooted to the lock screen.
     - Three first boots stopped at the Setup dialog with no verdict.
-  - Run 42912251442 (`tmp/icebp-repro`): the `int1` reproducer hung in all 3 of its cases on 6 of
-    6 runners, all AMD (EPYC 9V74 and 7763). Its `#DB` handler ran 510,000 to 680,000 times in
-    3 s, and every `#DB` exit's RIP was the `int1`.
+  - Runs 42912251442 and 42914030576 (`tmp/icebp-repro`), the `int1` reproducer on hosted runners:
+    - AMD: all 3 cases hung on 16 of 16 runners (EPYC 9V74 on D4ads_v6, 7763 on D4ads_v5). The
+      `#DB` handler ran 510,000 to 680,000 times in 3 s, and every `#DB` exit's RIP was the
+      `int1`.
+    - Intel: all 3 cases passed on 2 of 2 runners (Xeon 8370C on D4ds_v5), each at its HLT after
+      one `#DB` (four with TF set). VMX reported the ICEBP's exit at the `int1` too and skipped it.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
@@ -636,11 +643,13 @@ ansible-runtime's
 - **Get the ICEBP fix onto the runners** (the freeze gotcha, cause found 2026-11-10). Mainline's
   `ec9a16c6aeba` (7.3) has to reach Ubuntu's linux-azure 7.0 and then GitHub's runner image.
   Drafts to Ubuntu (Launchpad), the stable trees and actions/runner-images wait for the
-  maintainer's go. Until it lands, AMD runners keep freezing at the rate above, and a re-run is
-  the remedy. A lab could run the `int1` reproducer at its start, as a canary that records whether
-  its runner's KVM has the fix, so the day the image picks it up shows in the logs. Its source,
-  `.github/ci/icebp_repro.c` with a workflow, is at commit `267bc6f` of the deleted
-  `tmp/icebp-repro`.
+  maintainer's go. Whether it ends the freeze there is untested: it relies on Hyper-V forwarding
+  the ICEBP intercept to L1. Until a fixed kernel lands, AMD runners keep freezing at the rate
+  above, and a re-run is the remedy. A lab could run the `int1` reproducer at its start, as a
+  canary that records whether its runner's KVM still loops; the first pass on an AMD runner
+  would be the proof. Its source, `.github/ci/icebp_repro.c` with a workflow, is only at commit
+  `0997d78` of the deleted `tmp/icebp-repro`. That commit is unreferenced and may be
+  garbage-collected, so the canary would bring the file into the repo.
 - **At the 0.6.0 pin round, give the windows collection's `domain-lab` the watchdog's
   diagnostics**: `host-info.txt` in its upload and a "Show the watchdog's notes" step after
   destroy, as windows-lab has. Its `main` has neither (2026-11-10), so a guest that stalls and
