@@ -330,14 +330,32 @@ ansible-runtime's
   Stopping the vCPUs for their registers revived none of them. An NMI did reach the guest (it
   bugchecked and rebooted into chkdsk), so the guest still ran code; one rebooted guest stalled
   again before Windows loaded, its vCPU 0 in real mode and still exiting about 80,000 times a
-  second, which points at state outside the guest. The default configuration's freeze has no
-  capture yet: the watchdog is there for the next one in a lab (read its capture, match its
-  `host:` line and setup-molecule's "Record the host" to the fleet above). One of the 11
+  second, which points at state outside the guest. The default configuration's freeze was caught
+  twice since (2026-11-10, below); for the next one in a lab, read the watchdog's capture, match its
+  `host:` line and setup-molecule's "Record the host" to the fleet above. One of the 11
   captures was cut short by the soak destroying its VM mid-capture, not by the VM. No verdict
   came on any of the other 171 VM-cycles, five of them at the Setup dialog for 30 minutes with
-  their disk busy: the margin evidence for the 180 s timeout and rc 13. Next, both proposed in
-  PR #30: run the windows collection's `domain-lab` on this release's pin to capture the
-  default's freeze, and find with KVM's tracepoints (`sudo` works on the runners) what sends a
+  their disk busy: the margin evidence for the 180 s timeout and rc 13.
+  The default's freeze, caught (2026-11-10): the windows collection's `domain-lab` ran three
+  times (runs 42866700715, 42873288572 and 42881814577) on a temporary branch, `tmp/freeze-watch`
+  (deleted), that pinned setup-molecule and vm-screendump to this release's commit, `97d8bee`:
+  24 jobs, 36 VMs, all on the default `-cpu`. Two VMs froze, both on AMD runners (27 of the 36
+  VMs ran on AMD, 9 on Intel: Xeon Platinum 8573C and, new since the survey, 8370C). `mssql`'s
+  sql01, on a Standard_D4ads_v5 (EPYC 7763, eastus), stopped 4.7 minutes after QEMU started,
+  1.2 minutes into `quiet_vm`; `wsfc_fileserver`'s node1, on a Standard_D4ads_v6 (EPYC 9V74,
+  centralus), 7.1 minutes after QEMU started, idle while its DC was promoted. Both hosts ran
+  Hyper-V 26102.3704 and kernel 7.0.0-1017-azure, and a PSRP call to each failed "Read timed
+  out". Both captures match the candidates' on every point above: vCPU 0 at 100% with IF=0 at a
+  kernel address outside the image (`ffff9e8c…`, `ffffdd8d…`), 591,720 and 760,831 exits in
+  5 s (118,000 and 152,000 a second), half of them `irq_exits` (296,503 and 381,055), no
+  injections, the clock's 0xd1 in its IRR (with 0xb2, and 0x61 too in the second), TPR 0; vCPU 1
+  halted (`HLT=1`, `kvm_vcpu_block`) with an empty IRR. The kick revived neither, so it isn't the
+  Proxmox reports' freeze, and the halted vCPU's LAPIC timer was masked with no count, not the
+  NixOS report's armed TSC-deadline timer that never fires. `req_event` (KVM handling an event
+  request), which the soak's watchdog didn't print, moved with all but about 256 exits a second
+  (590,431 and 759,552). RFLAGS was `0x40187` (TF set) in the first and `0x40093` (TF clear) in
+  the second. No NMI was sent (`windows_vm_watchdog_nmi` is off by default).
+  Next, proposed in PR #30: find with KVM's tracepoints (`sudo` works on the runners) what sends a
   stalled vCPU tens of thousands of exits a second, `tsc-deadline=off` as the amplifier, for an
   upstream report.
 - **To apt, a crawling mirror isn't a failing one.** GitHub's Ubuntu runners read their mirrors from
@@ -564,18 +582,28 @@ ansible-runtime's
   on a VM whose converge (or first boot) had failed with it, with the capture described there,
   and none on the other 171 VM-cycles, including five VMs at the Setup dialog for 30 minutes. The
   synthetic-timer and `tsc-deadline=off` flags start on QEMU 8.2 under the runners' KVM.
+- 0.6.0's watchdog in the windows collection's `domain-lab` (2026-11-10, three runs on the deleted
+  branch `tmp/freeze-watch` pinned to `97d8bee`, the freeze gotcha): verdicts on the two VMs that
+  froze, each with its whole capture and stalled screen, and none on the other five VMs of the
+  three failed jobs, one of them at the Setup dialog with its disk busy. Green jobs upload no QEMU
+  log, so the other 29 VMs show only that their jobs passed. "Record the host" ran in all 24 jobs,
+  and `host-info.txt` came with each failed job's diagnostics.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
 ## TODO
 
-- **Catch the default `-cpu`'s freeze with a capture, then root-cause it** (the freeze gotcha).
-  Once a consumer lab runs 0.6.0, its next freeze comes with the watchdog's capture; until the
-  pin round, the windows collection's `domain-lab` could run on a temporary branch pinned to
-  0.6.0's commit (another repository: Chris's call). And in a soak with `tsc-deadline=off` as
+- **Root-cause the default `-cpu`'s freeze** (the freeze gotcha). It was caught twice on
+  2026-11-10 (the windows collection's `domain-lab` on a temporary branch pinned to 0.6.0's
+  commit), the candidates' exit storm both times, and once a consumer lab runs 0.6.0 its next
+  freeze comes with a capture too. In a soak with `tsc-deadline=off` as
   the amplifier, KVM's tracepoints (`kvm_exit`, `kvm_entry`, `kvm_inj_virq`, `kvm_apic_accept_irq`,
   `kvm_set_irq`, `kvm_msi_set_irq`, `kvm_hv_stimer_*`; the runners have `sudo`) would show what
   sends a stalled vCPU tens of thousands of exits a second, for an upstream KVM report.
+- **At the 0.6.0 pin round, give the windows collection's `domain-lab` the watchdog's
+  diagnostics**: `host-info.txt` in its upload and a "Show the watchdog's notes" step after
+  destroy, as windows-lab has. Its `main` has neither (2026-11-10), so a guest that stalls and
+  recovers in a green job leaves no trace (the 2026-11-10 runs' 21 green jobs said nothing).
 
 - Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
   extra data disks per VM: not supported yet.
@@ -592,7 +620,9 @@ ansible-runtime's
   repository's `windows_cluster` (run 42165815334, node1, westus3), in windows run 42300866937
   (srcdc, whose disk stopped 4 minutes after QEMU started: the freeze above, or the dialog's idle
   wait) and on 2026-11-07 in windows run 42417585756 (srcdc again, centralus, its disk still
-  written to the end: alive at the dialog); a re-run cleared each. A guest at the dialog that
+  written to the end: alive at the dialog), and on 2026-11-10 in windows run 42873288572 (dstdc,
+  alive, no watchdog verdict, on a Standard_D4ds_v5 with an Intel Xeon Platinum 8370C in
+  EastUS3: not only AMD runners); a re-run cleared each. A guest at the dialog that
   keeps its disk busy never gets the watchdog's verdict, by design: it isn't stuck, Setup is.
   It is sensitive to the guest's timers: in the 2026-11-07 soak (the freeze gotcha) the default
   `-cpu` hit it on 1 of 60 first boots (a D4ads_v6, EPYC 9V74) and `tsc-deadline=off` on 4 of 60.
