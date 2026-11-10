@@ -42,6 +42,27 @@ argument_specs:
         description:
           - Deprecated since 0.4.0 (it was the poll count); use C(windows_vm_first_boot_timeout). When set, it
             means that many 10 s polls.
+      windows_vm_cpu:
+        type: str
+        default: host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
+        description:
+          - QEMU's C(-cpu) for every VM, the host's CPU plus the Hyper-V enlightenments Windows uses on KVM.
+      windows_vm_watchdog_timeout:
+        type: int
+        default: 180
+        description:
+          - Seconds a guest may make no progress (no disk I/O and no answer on its WinRM port) while QEMU reports it
+            running, before the supervisor's watchdog records a stall in C(<platform>-qemu.log) with a capture (the
+            screen as C(<platform>-stalled-screen.ppm), vCPU threads, KVM counters, registers, local APICs). A stall
+            during the first boot ends the wait at once. The watchdog only reports; the VM keeps running.
+          - C(0) turns the watchdog off.
+      windows_vm_watchdog_nmi:
+        type: bool
+        default: false
+        description:
+          - After a stall's capture, inject an NMI and take another screen 15 s later
+            (C(<platform>-nmi-screen.ppm)), for investigating a stall. The stuck guest bugchecks and reboots, and
+            may stall again while booting, so this ends the guest's run.
   create:
     short_description: Boot a Windows box under QEMU/KVM and append its entry to C(windows_vm_instances)
     options: *windows_vm_options

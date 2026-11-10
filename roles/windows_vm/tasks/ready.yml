@@ -5,6 +5,7 @@
   ansible.builtin.set_fact:
     windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
     windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    windows_vm_stall_marker: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.stalled"
     windows_vm_qemu_log: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qemu.log"
 
 - name: Work out the NICs
@@ -25,7 +26,8 @@
 # The per-attempt timeout matters: a call caught by that reboot can hang
 # forever on a half-open slirp connection (it hung one CI run for 40 minutes).
 # Each poll checks the VM first, so a QEMU that exited (rc 10), a guest that
-# stopped (11) or the deadline (12) ends the wait at once.
+# stopped (11), a guest the watchdog found making no progress (13) or the
+# deadline (12) ends the wait at once.
 - name: Wait for the box's first boot to finish (OOBE, rearm reboot, WinRM reset)
   ansible.builtin.command:
     expand_argument_vars: false
@@ -42,9 +44,10 @@
       - --password={{ molecule_platform.box_password }}
       - --pidfile={{ windows_vm_pidfile }}
       - --monitor={{ windows_vm_monitor }}
+      - --stalled={{ windows_vm_stall_marker }}
       - --deadline={{ windows_vm_first_boot_deadline }}
   register: windows_vm_first_boot
-  until: windows_vm_first_boot.rc in [0, 10, 11, 12]
+  until: windows_vm_first_boot.rc in [0, 10, 11, 12, 13]
   # A ceiling only: the deadline (rc 12) ends the wait first.
   retries: "{{ (windows_vm_first_boot_timeout | int // 10) + 10 }}"
   delay: 10
@@ -55,7 +58,7 @@
   when: windows_vm_first_boot.rc != 0
   ansible.builtin.command:
     expand_argument_vars: false
-    argv: [tail, -n, '20', "{{ windows_vm_qemu_log }}"]
+    argv: [tail, -n, "{{ '80' if windows_vm_first_boot.rc == 13 else '20' }}", "{{ windows_vm_qemu_log }}"]
   register: windows_vm_qemu_tail
   changed_when: false
   failed_when: false
@@ -79,6 +82,9 @@
       {{ 'its QEMU process exited (the log below says how)' if windows_vm_first_boot_rc | int == 10
          else ('the guest stopped; QEMU reports "' ~ (windows_vm_first_boot.stdout | default('') | trim) ~ '"')
               if windows_vm_first_boot_rc | int == 11
+         else ('the watchdog found the guest stuck: ' ~ (windows_vm_first_boot.stdout | default('') | trim)
+               ~ ' (its capture is in the log)')
+              if windows_vm_first_boot_rc | int == 13
          else ("it wasn't ready " ~ (windows_vm_first_boot_timeout | int // 60) ~ ' minutes after the VMs started ('
                ~ windows_vm_first_boot_output ~ ')') if windows_vm_first_boot_rc | int == 12
          else ('the last poll returned rc ' ~ windows_vm_first_boot_rc

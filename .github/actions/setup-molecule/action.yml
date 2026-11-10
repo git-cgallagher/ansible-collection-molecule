@@ -127,6 +127,19 @@ runs:
         echo "MOLECULE_LAB_DIR=$LAB_DIR" >> "$GITHUB_ENV"
         df -h "$LAB_DIR" /
 
+    # What the lab's guests run on: the runner's VM size and CPU, its kernel, the
+    # TSC features and clocksource nested guests' clocks rest on, the KVM
+    # parameters, and the kernel's notes on Hyper-V (its build) and the TSC. A
+    # lab failure can then be matched to the hardware. With lab-dir, also in
+    # <lab-dir>/host-info.txt.
+    - name: Record the host
+      if: inputs.kvm == 'true'
+      shell: bash
+      env:
+        LAB_DIR: ${{ inputs.lab-dir }}
+      run: |
+        "$GITHUB_ACTION_PATH/host_info.sh" ${LAB_DIR:+"$LAB_DIR/host-info.txt"}
+
     # The action's own checkout is the whole repository at the pinned ref:
     # the driver (pyproject.toml) and the collection (galaxy.yml) come from it.
     # With collections-image the image's collections go in first: installing
