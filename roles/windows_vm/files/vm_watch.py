@@ -249,8 +249,8 @@ def capture(qmp_path: str, pid: int, prefix: str, port: int, nmi_wait: float = 0
        the disk and WinRM are sampled again kick_wait seconds later and the
        capture says whether this one did. (None of the soak's stalls did.)
     3. With nmi_wait, if the guest is still stuck: an NMI, and a second screen
-       nmi_wait seconds later. In the 2026-11-07 soak, half the guests resumed
-       after it and half rebooted."""
+       nmi_wait seconds later. In the soaks the stuck guest bugchecked on it
+       and rebooted."""
     lines: list[str] = []
     screen = f"{prefix}-stalled-screen.ppm"
     try:

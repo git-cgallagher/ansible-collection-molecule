@@ -34,6 +34,6 @@ windows_vm_cpu: host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
 windows_vm_watchdog_timeout: 180
 
 # After a stall's capture, inject an NMI and take a second screen 15 s later
-# (<platform>-nmi-screen.ppm). For investigating a stall: the guest may resume
-# or reboot (half of each in the 2026-11-07 soak), so it is off by default.
+# (<platform>-nmi-screen.ppm). The stuck guest bugchecks and reboots, and may
+# stall again while booting: for investigating a stall, so off by default.
 windows_vm_watchdog_nmi: false
