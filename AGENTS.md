@@ -600,6 +600,10 @@ ansible-runtime's
   the amplifier, KVM's tracepoints (`kvm_exit`, `kvm_entry`, `kvm_inj_virq`, `kvm_apic_accept_irq`,
   `kvm_set_irq`, `kvm_msi_set_irq`, `kvm_hv_stimer_*`; the runners have `sudo`) would show what
   sends a stalled vCPU tens of thousands of exits a second, for an upstream KVM report.
+- **At the 0.6.0 pin round, give the windows collection's `domain-lab` the watchdog's
+  diagnostics**: `host-info.txt` in its upload and a "Show the watchdog's notes" step after
+  destroy, as windows-lab has. Its `main` has neither (2026-11-10), so a guest that stalls and
+  recovers in a green job leaves no trace (the 2026-11-10 runs' 21 green jobs said nothing).
 
 - Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
   extra data disks per VM: not supported yet.
