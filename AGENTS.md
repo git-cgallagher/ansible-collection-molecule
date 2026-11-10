@@ -271,7 +271,8 @@ ansible-runtime's
   setup-molecule's `lab-dir` only creates the directory.
   A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
   unconfirmed), so read the step's log the first time a run lands on one.
-- **A `windows_vm` guest can freeze while QEMU says it runs** (open; 0.6.0 catches and records
+- **A `windows_vm` guest can freeze while QEMU says it runs** (cause found 2026-11-10: a KVM bug
+  on the AMD runners, fixed upstream but not in their kernel, below; 0.6.0 catches and records
   it). The signs: `vm-screendump` says "VM status: running", but the screen's clock is minutes
   behind (a lock screen, or "Applying computer settings" after a reboot), the VM's overlay
   (`<platform>.qcow2` in its `ls -la`) stopped being written 3 to 13 minutes after QEMU started,
@@ -294,8 +295,9 @@ ansible-runtime's
   Intel Xeon Platinum 8573C (1), on
   Hyper-V builds 26102.1478, .3704 and .3730; `kvm_amd` has `avic=N vgif=0 vnmi=N`, `kvm_intel`
   `enable_apicv=N preemption_timer=N enlightened_vmcs=Y`. All run kernel 7.0.0-1017-azure, which
-  the ubuntu24 images carry since 20261026.354 (10-26; 6.17.0-1022-azure before). That is the
-  strongest lead: Proxmox users report Windows guests freezing on host kernels 7.0.x, not 6.17,
+  the ubuntu24 images carry since 20261026.354 (10-26; 6.17.0-1022-azure before). That was the
+  strongest lead until the cause turned up (below), which isn't new in 7.0: Proxmox users report
+  Windows guests freezing on host kernels 7.0.x, not 6.17,
   with every vCPU thread in `ioctl(KVM_RUN)` and the guest back the moment a ptrace attach
   interrupts them (forum thread 184320). Proxmox traced its Intel cases to MBEC/APICv with VBS
   (bugzilla 7825, fixed in qemu-server 9.2.0's CPU flags), which can't apply here (no APICv or
@@ -327,18 +329,20 @@ ansible-runtime's
   times a second, about half of them external-interrupt exits (`irq_exits`), with no interrupt
   injected and interrupts waiting in its IRR (the clock's vector 0xd1 in most); the other vCPU
   idles in `HLT` with an empty IRR, or spins at TPR 0xc0 with long-spin-wait hypercalls.
-  Stopping the vCPUs for their registers revived none of them. An NMI did reach the guest (it
-  bugchecked and rebooted into chkdsk), so the guest still ran code; one rebooted guest stalled
-  again before Windows loaded, its vCPU 0 in real mode and still exiting about 80,000 times a
-  second, which points at state outside the guest. The default configuration's freeze was caught
-  twice since (2026-11-10, below); for the next one in a lab, read the watchdog's capture, match its
-  `host:` line and setup-molecule's "Record the host" to the fleet above. One of the 11
+  Stopping the vCPUs for their registers revived none of them. An NMI brought back all 8 guests
+  it was sent to on a first verdict: 4 resumed in place (the lock screen back, its clock caught
+  up) and 4 rebooted, with no bugcheck on any saved screen. Two of the rebooted stalled again
+  about 3 minutes later, before Windows loaded: vCPU 0 in real mode with IF=0 and an empty IRR,
+  still exiting 80,000 to 100,000 times a second, under 1% of them `irq_exits`. The default
+  configuration's freeze was caught twice since (2026-11-10, below); for the next one in a lab,
+  read the watchdog's capture, match its `host:` line and setup-molecule's "Record the host" to
+  the fleet above. One of the 11
   captures was cut short by the soak destroying its VM mid-capture, not by the VM. No verdict
   came on any of the other 171 VM-cycles, five of them at the Setup dialog for 30 minutes with
   their disk busy: the margin evidence for the 180 s timeout and rc 13.
   The default's freeze, caught (2026-11-10): the windows collection's `domain-lab` ran three
   times (runs 42866700715, 42873288572 and 42881814577) on a temporary branch, `tmp/freeze-watch`
-  (deleted), that pinned setup-molecule and vm-screendump to this release's commit, `97d8bee`:
+  (deleted), that pinned setup-molecule and vm-screendump to the commit the runs used, `97d8bee`:
   24 jobs, 36 VMs, all on the default `-cpu`. Two VMs froze, both on AMD runners (27 of the 36
   VMs ran on AMD, 9 on Intel: Xeon Platinum 8573C and, new since the survey, 8370C). `mssql`'s
   sql01, on a Standard_D4ads_v5 (EPYC 7763, eastus), stopped 4.7 minutes after QEMU started,
@@ -355,9 +359,34 @@ ansible-runtime's
   request), which the soak's watchdog didn't print, moved with all but about 256 exits a second
   (590,431 and 759,552). RFLAGS was `0x40187` (TF set) in the first and `0x40093` (TF clear) in
   the second. No NMI was sent (`windows_vm_watchdog_nmi` is off by default).
-  Next, proposed in PR #30: find with KVM's tracepoints (`sudo` works on the runners) what sends a
-  stalled vCPU tens of thousands of exits a second, `tsc-deadline=off` as the amplifier, for an
-  upstream report.
+  The cause, found 2026-11-10 with KVM's tracepoints (armed to start only at a verdict) in soak
+  run 42893782267 on the deleted branch `tmp/kvm-trace`: 105 VM-cycles with `tsc-deadline=off` on
+  AMD runners, two stalls traced, one on an EPYC 9V45 and one on a 7763.
+  - Windows executes `int1` (ICEBP, opcode 0xF1) with TF set and interrupts off, from pool memory
+    and on a private 19-vector IDT whose #DB handler only returns (`iretq`). It is a probe, very
+    likely PatchGuard's: the NMI into one stall bugchecked that guest with PatchGuard's stop code,
+    CRITICAL_STRUCTURE_CORRUPTION; the other guest got NMI_HARDWARE_FAILURE.
+  - ICEBP's #DB is a trap, so the guest should resume after the instruction. On these runners KVM
+    gets the #DB with RIP still on the ICEBP and re-injects it there. The handler returns to the
+    ICEBP, forever.
+  - That is the whole storm: one `#DB` exit after another at an RIP that never moves, each followed
+    by an external-interrupt exit. That second exit is KVM's own self-IPI, which it sends to force
+    an immediate exit whenever it injects an exception while vectors wait in the IRR. Hence half
+    the exits being `irq_exits`, `req_event` on nearly every exit, and nothing injected.
+  - Windows isn't needed to hit it. A 268-line `/dev/kvm` guest that executes `int1` with a handler
+    that only returns hung on 6 of 6 AMD runners, in 64-bit and in real mode (run 42912251442,
+    branch `tmp/icebp-repro`, deleted).
+  - Bare-metal AMD reports the right RIP outside task gates, so the wrong one most likely comes
+    from Hyper-V's nested virtualization. Intel's KVM skips ICEBP itself, hence no freeze on Intel
+    runners.
+  - Mainline Linux fixed it in 7.3: commit `ec9a16c6aeba`, "KVM: SVM: Always intercept ICEBP",
+    May 2026, not marked for stable. The runners' 7.0.0-1017-azure lacks it, and no workaround
+    inside the guest or QEMU is known.
+
+  The rate follows how often Windows runs the probe; why the two candidates raise it is open, and
+  soak 1's 0 of 45 with tracing always on was chance. The real-mode re-stalls fit the same loop
+  without the self-IPIs, but none was traced. Drafts to Ubuntu (a linux-azure backport), the
+  kernel's stable trees and actions/runner-images wait for the maintainer's go.
 - **To apt, a crawling mirror isn't a failing one.** GitHub's Ubuntu runners read their mirrors from
   `/etc/apt/apt-mirrors.txt` (`mirror+file:` sources): `http://azure.archive.ubuntu.com/ubuntu/`
   at `priority:1`, then `https://archive.ubuntu.com/ubuntu/` and
@@ -401,7 +430,7 @@ ansible-runtime's
   collection directory. `image_collections.sh` asks Python for `ansible_collections.__path__`, which
   holds only the directories on `sys.path`.
 
-## Verified (2026-10-31 to 2026-11-07)
+## Verified (2026-10-31 to 2026-11-10)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -588,18 +617,30 @@ ansible-runtime's
   three failed jobs, one of them at the Setup dialog with its disk busy. Green jobs upload no QEMU
   log, so the other 29 VMs show only that their jobs passed. "Record the host" ran in all 24 jobs,
   and `host-info.txt` came with each failed job's diagnostics.
+- The freeze's cause (2026-11-10, the freeze gotcha), from two runs on deleted branches:
+  - Soak run 42893782267 (`tmp/kvm-trace`), 105 AMD VM-cycles with `tsc-deadline=off`: two stalls,
+    both traced by root tracefs instances started at the watchdog's verdict.
+    - Each shows the `#DB`/self-IPI exit pair at one guest RIP, and `int1` at that RIP in the one
+      that was disassembled.
+    - The NMI then bugchecked both guests (stop codes 0x80 and 0x109). Each wrote its dump, which
+      the watchdog logged as "making progress again", and rebooted to the lock screen.
+    - Three first boots stopped at the Setup dialog with no verdict.
+  - Run 42912251442 (`tmp/icebp-repro`): the `int1` reproducer hung in all 3 of its cases on 6 of
+    6 runners, all AMD (EPYC 9V74 and 7763). Its `#DB` handler ran 510,000 to 680,000 times in
+    3 s, and every `#DB` exit's RIP was the `int1`.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
 ## TODO
 
-- **Root-cause the default `-cpu`'s freeze** (the freeze gotcha). It was caught twice on
-  2026-11-10 (the windows collection's `domain-lab` on a temporary branch pinned to 0.6.0's
-  commit), the candidates' exit storm both times, and once a consumer lab runs 0.6.0 its next
-  freeze comes with a capture too. In a soak with `tsc-deadline=off` as
-  the amplifier, KVM's tracepoints (`kvm_exit`, `kvm_entry`, `kvm_inj_virq`, `kvm_apic_accept_irq`,
-  `kvm_set_irq`, `kvm_msi_set_irq`, `kvm_hv_stimer_*`; the runners have `sudo`) would show what
-  sends a stalled vCPU tens of thousands of exits a second, for an upstream KVM report.
+- **Get the ICEBP fix onto the runners** (the freeze gotcha, cause found 2026-11-10). Mainline's
+  `ec9a16c6aeba` (7.3) has to reach Ubuntu's linux-azure 7.0 and then GitHub's runner image.
+  Drafts to Ubuntu (Launchpad), the stable trees and actions/runner-images wait for the
+  maintainer's go. Until it lands, AMD runners keep freezing at the rate above, and a re-run is
+  the remedy. A lab could run the `int1` reproducer at its start, as a canary that records whether
+  its runner's KVM has the fix, so the day the image picks it up shows in the logs. Its source,
+  `.github/ci/icebp_repro.c` with a workflow, is at commit `267bc6f` of the deleted
+  `tmp/icebp-repro`.
 - **At the 0.6.0 pin round, give the windows collection's `domain-lab` the watchdog's
   diagnostics**: `host-info.txt` in its upload and a "Show the watchdog's notes" step after
   destroy, as windows-lab has. Its `main` has neither (2026-11-10), so a guest that stalls and
