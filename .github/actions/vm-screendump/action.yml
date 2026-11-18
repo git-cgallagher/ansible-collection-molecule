@@ -2,8 +2,11 @@ name: Capture a windows_vm screen
 description: >-
   Ask windows_vm platforms' QEMU monitors for their run state and a screendump
   each (PPM, as <platform>-screen.ppm in the lab directory), and print the end
-  of each platform's QEMU log (<platform>-qemu.log: QEMU's output and how it
-  stopped), for a failed run's diagnostics. Never fails the job.
+  of each platform's QEMU log (<platform>-qemu.log: the host it ran on, QEMU's
+  output and how it stopped), for a failed run's diagnostics. A guest the
+  driver's watchdog found making no progress gets an error annotation, and its
+  capture (screen as <platform>-stalled-screen.ppm, vCPUs, KVM counters, APICs)
+  is printed whole. Never fails the job.
 inputs:
   lab-dir:
     description: The lab directory (MOLECULE_LAB_DIR).
@@ -38,9 +41,20 @@ runs:
           fi
           log="$LAB_DIR/$platform-qemu.log"
           if [ -f "$log" ]; then
+            grep -a -m 1 'qemu-supervisor: host:' "$log" || true
             echo "--- end of $log"
             tail -n 40 "$log"
           fi
           echo "::endgroup::"
+          # The driver's watchdog (roles/windows_vm/files/vm_watch.py): each
+          # verdict, then its capture in full (the tail above may cut it).
+          if [ -f "$log" ] && grep -a -q 'watchdog: the guest made no progress' "$log"; then
+            verdict=$(grep -a -m 1 'watchdog: the guest made no progress' "$log" | sed 's/^.*watchdog: //')
+            echo "::error title=$platform made no progress::$platform: $verdict (capture in $platform-qemu.log)"
+            echo "::group::$platform: the watchdog's capture"
+            sed -n '/watchdog: the guest made no progress/,/watchdog: end of the capture/p' "$log"
+            grep -a 'watchdog: the guest is making progress again' "$log" || true
+            echo "::endgroup::"
+          fi
         done
         ls -la "$LAB_DIR" || true

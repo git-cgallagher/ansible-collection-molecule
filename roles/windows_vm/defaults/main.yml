@@ -21,3 +21,19 @@ windows_vm_scenario_key: "{{ molecule_scenario_directory | default(lookup('ansib
 # fails at the next poll (10 s apart) instead. windows_vm_first_boot_retries,
 # the poll count before 0.4.0, still works: it means that many 10 s polls.
 windows_vm_first_boot_timeout: "{{ (windows_vm_first_boot_retries | int * 10) if windows_vm_first_boot_retries is defined else 1800 }}"
+
+# QEMU's -cpu: the host's CPU, plus the Hyper-V enlightenments Windows uses on
+# KVM. AGENTS.md ("A windows_vm guest can freeze ...") has what was tried.
+windows_vm_cpu: host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time
+
+# The watchdog (files/vm_watch.py, run by the QEMU supervisor): a guest that
+# makes no progress for this many seconds (no disk I/O and no answer on its
+# WinRM port) while QEMU says it runs gets a verdict and a capture (screen,
+# vCPUs, KVM counters, APICs) in <platform>-qemu.log, and fails the first-boot
+# wait at once. It only reports: the VM keeps running. 0 turns it off.
+windows_vm_watchdog_timeout: 180
+
+# After a stall's capture, inject an NMI and take a second screen 15 s later
+# (<platform>-nmi-screen.ppm). The stuck guest bugchecks and reboots, and may
+# stall again while booting: for investigating a stall, so off by default.
+windows_vm_watchdog_nmi: false

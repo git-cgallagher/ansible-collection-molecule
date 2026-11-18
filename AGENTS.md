@@ -68,6 +68,31 @@ Sanity needs an `ansible_collections/git_cgallagher/molecule` checkout: `ansible
   windows_vm's `ready`), then WinRM. rc 10 (QEMU gone), 11 (guest stopped) and 12 (deadline) end the
   until loop at once; 0 is ready; 3, or a hung attempt's 124, polls again. `.github/ci/windows_vm_lifecycle.sh`
   (windows-lab's `lifecycle` job) checks each of those answers but "ready" against a disk-less QEMU.
+- **windows_vm watchdog (0.6.0).** The supervisor also watches its guest (`files/vm_watch.py`) on a
+  QMP socket of its own, `<platform>-qmp.sock`: QEMU serves one client per monitor socket, so the
+  HMP one stays free for the first-boot poll and `vm-screendump`. Every 10 s it reads the drives'
+  I/O counts (`query-blockstats`) and sends an HTTP request through the WinRM forward, which a live
+  guest answers within milliseconds (a reply, or a reset when nothing listens) and a stopped one
+  never does (slirp accepts on the host side either way, so only a reply or a reset counts).
+  `windows_vm_watchdog_timeout` (180) seconds of neither is a stall: the verdict and a capture go
+  to `<platform>-qemu.log`, and `<platform>.stalled` ends the first-boot wait (rc 13); `ready`
+  waits for the VMs in order, so a stall on a later VM ends it when that VM's turn comes (in the
+  soak, vm3's verdict waited while vm1 sat at the Setup dialog to the deadline). The capture
+  takes the screen first (`<platform>-stalled-screen.ppm`; its clock dates the stall), then each
+  vCPU thread's state, wait channel and CPU use over 5 s with KVM's counters (`query-stats`), the
+  disk and slirp's connections, then each vCPU's registers and local APIC (`info registers`,
+  `info lapic` with `cpu-index`), which stop each vCPU for a moment and so come last. 15 s later it
+  samples the disk and WinRM again and says whether the guest moved: on host kernels 7.0.x a kick
+  out of `KVM_RUN` revives some stuck guests (Proxmox's reports, below), though none of the
+  soak's stalls. `vm_watch.py --kick-after` (no role variable) kicks a silent guest once before
+  the verdict; the lifecycle test covers it.
+  `windows_vm_watchdog_nmi` then sends a still-stuck guest an NMI and takes `<platform>-nmi-screen.ppm`
+  15 s later. The watchdog only reports, and never stops QEMU or the supervisor: its loop
+  catches everything. At QEMU's exit it logs the longest stretch without progress (the margin
+  the timeout had); windows-lab's "Show the watchdog's notes" prints those lines after destroy.
+  Each QEMU log starts with `host: kernel …, clocksource …, CPU …`, and setup-molecule's "Record
+  the host" step (`host_info.sh`) prints the rest, Azure VM size included (instance metadata
+  answers on GitHub's runners).
 - **setup-molecule's collections (0.5.0).** With `collections-image`,
   `.github/actions/setup-molecule/image_collections.sh` asks the image for its `ansible_collections`
   directory (`ansible_collections.__path__` in the image's Python: ansible-runtime installs them in
@@ -246,6 +271,75 @@ ansible-runtime's
   setup-molecule's `lab-dir` only creates the directory.
   A real `cow-root` runner is provisioned differently (copy-on-write, going by the device name;
   unconfirmed), so read the step's log the first time a run lands on one.
+- **A `windows_vm` guest can freeze while QEMU says it runs** (open; 0.6.0 catches and records
+  it). The signs: `vm-screendump` says "VM status: running", but the screen's clock is minutes
+  behind (a lock screen, or "Applying computer settings" after a reboot), the VM's overlay
+  (`<platform>.qcow2` in its `ls -la`) stopped being written 3 to 13 minutes after QEMU started,
+  while the other VMs' were written within a minute, and the next PSRP call failed "Read timed
+  out. (read timeout=30)", or a `win_reboot` never saw the VM come back. In the windows
+  collection's `domain-lab` that failed 16 jobs from 2026-11-02 to 11-07 (of 771 finished since
+  10-28; 2, 1, 5, 3 and 5 a day, about one job in nine on 11-07), two of this repository's
+  `windows_cluster` jobs (11-02, 11-05), and perhaps 6 first boots whose disk stopped (see the
+  Setup-dialog TODO). Busy or idle, any lab, every Azure region; a re-run passed each time. It
+  was there all week, not new on 11-07 as it first looked. What it isn't: QEMU (11-07's cache
+  key, `setup-molecule-apt-ubuntu24-7eb9f46202f586b8`, is 11-06's: the same `.deb`s), the runner
+  image (20261101.360.1 on both days), memory (10.8 GB available at the failure), or the clock
+  sources GNS3/gns3-server#3025 and the April 2026 LKML report "kvmclock jumps ~253 years on
+  Hyper-V nested virt" blame: those need a host on `hyperv_clocksource_tsc_page` without an
+  invariant TSC, and a survey of 16 runners (run 42420349969, branch `tmp/runner-survey`, deleted)
+  found every one on the `tsc` clocksource with `constant_tsc nonstop_tsc tsc_reliable` and no TSC
+  skew between vCPUs (a pinned-thread warp test). The fleet is mixed: Standard_D4ads_v5 with AMD
+  EPYC 7763 (9 of 16, and a tenth D4ads_v5 on an EPYC 9V74), D4ads_v6 EPYC 9V74 (1), D4ads_v7 EPYC
+  9V45 (4; no `x2apic` flag, "[Firmware Bug]: TSC doesn't count with P0 frequency!") and D4ds_v5
+  Intel Xeon Platinum 8573C (1), on
+  Hyper-V builds 26102.1478, .3704 and .3730; `kvm_amd` has `avic=N vgif=0 vnmi=N`, `kvm_intel`
+  `enable_apicv=N preemption_timer=N enlightened_vmcs=Y`. All run kernel 7.0.0-1017-azure, which
+  the ubuntu24 images carry since 20261026.354 (10-26; 6.17.0-1022-azure before). That is the
+  strongest lead: Proxmox users report Windows guests freezing on host kernels 7.0.x, not 6.17,
+  with every vCPU thread in `ioctl(KVM_RUN)` and the guest back the moment a ptrace attach
+  interrupts them (forum thread 184320). Proxmox traced its Intel cases to MBEC/APICv with VBS
+  (bugzilla 7825, fixed in qemu-server 9.2.0's CPU flags), which can't apply here (no APICv or
+  AVIC in the runners' KVM, and VBS needs UEFI, which the BIOS-booted box hasn't); its AMD EPYC
+  cases have no explanation, and NixOS/nixpkgs#571838 reports nested guests on Hyper-V hanging
+  with an L1 kernel of 6.18 or later and not 6.12 (vCPU in HLT, its TSC-deadline timer armed and
+  never firing). The labs began
+  on 10-27, after the switch, so there is no 6.17 baseline to compare. VMLabDev/vmlab#180 is the
+  reason not to drop `hv_time` while experimenting: without it a Windows clock read takes 5 to 50
+  µs instead of 20 ns.
+  What was tried (2026-11-07): an A/B soak, run 42422630662 on the deleted branch
+  `tmp/vm-soak`: 12 jobs, each cycling three fresh 2-vCPU, 2.5 GB VMs through create, about
+  eight minutes of `quiet_vm`, CPU and disk work, idle time, a reboot and check-ins, then
+  destroy, five times, with the watchdog (and its NMI) on. QEMU's `-cpu` was
+  `host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time` plus:
+
+  | Added | VM-cycles | Stalled (verdicts) | Setup dialog (first boots) |
+  |---|---|---|---|
+  | nothing (the default) | 60 | 0 | 1 |
+  | `hv_vpindex,hv_runtime,hv_synic,hv_stimer,hv_frequencies` (synthetic timers) | 60 | 4 (5) | 0 |
+  | `tsc-deadline=off` (GNS3's change) | 60 | 5 (6) | 4 |
+
+  Both candidates made it worse, on EPYC 7763, 9V74 and 9V45 alike, and `tsc-deadline=off` also
+  brought the Setup dialog of the TODO below; the default stays. Its 0 of 60 proves nothing
+  about it (the labs' rate, about 1.5% of VMs, predicts one), and telling a fix apart from it
+  would take hundreds of VM-cycles a configuration. With the two candidates the hang looked like
+  this in the captures: the vCPU that takes the clock interrupt runs at 100% with interrupts
+  off (RFLAGS.IF=0) at a kernel address outside the image, exiting to KVM 80,000 to 150,000
+  times a second, about half of them external-interrupt exits (`irq_exits`), with no interrupt
+  injected and interrupts waiting in its IRR (the clock's vector 0xd1 in most); the other vCPU
+  idles in `HLT` with an empty IRR, or spins at TPR 0xc0 with long-spin-wait hypercalls.
+  Stopping the vCPUs for their registers revived none of them. An NMI did reach the guest (it
+  bugchecked and rebooted into chkdsk), so the guest still ran code; one rebooted guest stalled
+  again before Windows loaded, its vCPU 0 in real mode and still exiting about 80,000 times a
+  second, which points at state outside the guest. The default configuration's freeze has no
+  capture yet: the watchdog is there for the next one in a lab (read its capture, match its
+  `host:` line and setup-molecule's "Record the host" to the fleet above). One of the 11
+  captures was cut short by the soak destroying its VM mid-capture, not by the VM. No verdict
+  came on any of the other 171 VM-cycles, five of them at the Setup dialog for 30 minutes with
+  their disk busy: the margin evidence for the 180 s timeout and rc 13. Next, both proposed in
+  PR #30: run the windows collection's `domain-lab` on this release's pin to capture the
+  default's freeze, and find with KVM's tracepoints (`sudo` works on the runners) what sends a
+  stalled vCPU tens of thousands of exits a second, `tsc-deadline=off` as the amplifier, for an
+  upstream report.
 - **To apt, a crawling mirror isn't a failing one.** GitHub's Ubuntu runners read their mirrors from
   `/etc/apt/apt-mirrors.txt` (`mirror+file:` sources): `http://azure.archive.ubuntu.com/ubuntu/`
   at `priority:1`, then `https://archive.ubuntu.com/ubuntu/` and
@@ -289,7 +383,7 @@ ansible-runtime's
   collection directory. `image_collections.sh` asks Python for `ansible_collections.__path__`, which
   holds only the directories on `sys.path`.
 
-## Verified (2026-10-31 to 2026-11-06)
+## Verified (2026-10-31 to 2026-11-07)
 
 - On a Mac (Docker Desktop 29.7.2, arm64; Molecule 26.10.0, ansible-core 2.21.5): `docker_smoke` and
   `docker_full` pass `molecule test` with no create/destroy files; unknown keys fail for both kinds;
@@ -449,10 +543,39 @@ ansible-runtime's
   ansible-runtime 1.4.0 (its PR #21, `241c057`) pins `728a9fe` as the image's driver, and every
   consumer runs `1.4.0-ci@sha256:317d54cc…`: isc PR #38, windows #71, orchestration #21, aws #9,
   vmware #3 and this repository's #28, all merged 2026-11-06.
+- 0.6.0's watchdog, before CI (2026-11-07): `.github/ci/windows_vm_lifecycle.sh`, run as before in
+  an amd64 `ubuntu:24.04` container on the Mac (QEMU 8.2.2, TCG): a stand-in WinRM listener that
+  answers keeps the watchdog quiet (no verdict, no early kick); once it stops, the early kick comes
+  at 4 s and the verdict at 12 s, with the capture (screen, the vCPU thread, registers in real mode
+  as `EIP=`/`EFL=`, the local APIC, "15 s after its vCPUs were stopped for their registers: 0 disk
+  operations, WinRM silent: still stuck", the NMI and its screen), the marker and the poll's rc 13;
+  a listener back again removes the marker ("making progress again"); QEMU's exit logs the longest
+  silence before its `stopped:` line. Each log starts with the `host:` line. ansible-test sanity
+  (all tests, ansible-core 2.21.5), yamllint, ansible-lint (production), actionlint and shellcheck
+  pass.
+- 0.6.0 in CI (PR #30's first head, `1321844`): every check passed, `windows_dc` and
+  `windows_cluster` included, with the watchdog on every VM (green runs didn't print its notes
+  yet; "Show the watchdog's notes" came later). The `lifecycle` job ran on a Standard_D4ads_v7
+  (AMD EPYC 9V45) and its capture shows what KVM tells about a halted vCPU: "state S, 0% CPU over
+  5 s, waiting in kvm_vcpu_block; KVM over 5 s: exits +548, halt_exits +91, halt_wakeup +91,
+  irq_injections +91" (the BIOS's 18.2 Hz timer). `query-stats` works on the runners' QEMU 8.2
+  and kernel 7.0.
+- 0.6.0's watchdog in the 2026-11-07 soak (run 42422630662, the freeze gotcha): 11 verdicts, each
+  on a VM whose converge (or first boot) had failed with it, with the capture described there,
+  and none on the other 171 VM-cycles, including five VMs at the Setup dialog for 30 minutes. The
+  synthetic-timer and `tsc-deadline=off` flags start on QEMU 8.2 under the runners' KVM.
 - **Not verified yet:** lab networks with more than two VMs or more than one network per VM. A real
   guest powering itself off (state "shutdown"): the lifecycle test's `stop` ("paused") stands in for it.
 
 ## TODO
+
+- **Catch the default `-cpu`'s freeze with a capture, then root-cause it** (the freeze gotcha).
+  Once a consumer lab runs 0.6.0, its next freeze comes with the watchdog's capture; until the
+  pin round, the windows collection's `domain-lab` could run on a temporary branch pinned to
+  0.6.0's commit (another repository: Chris's call). And in a soak with `tsc-deadline=off` as
+  the amplifier, KVM's tracepoints (`kvm_exit`, `kvm_entry`, `kvm_inj_virq`, `kvm_apic_accept_irq`,
+  `kvm_set_irq`, `kvm_msi_set_irq`, `kvm_hv_stimer_*`; the runners have `sudo`) would show what
+  sends a stalled vCPU tens of thousands of exits a second, for an upstream KVM report.
 
 - Shared disks for cluster storage (WSFC cluster disks need SCSI-3 persistent reservations) and
   extra data disks per VM: not supported yet.
@@ -462,10 +585,17 @@ ansible-runtime's
 - Drop `windows_vm_first_boot_retries` (deprecated in 0.4.0, mapped to 10 s polls) once no consumer
   sets it; windows PR #36's `wsfc_fileserver` scenario did, at 180.
 - A guest whose own first-boot setup fails ("Windows Setup could not configure Windows to run on
-  this computer's hardware", in the screendump) keeps WinRM's port open, so `ready` waits out the
-  whole 30-minute deadline. Seen three times on 2026-11-02, in windows runs 41464369281 and
-  41521829034 and isc run 41512670995, and again on 2026-11-06 in this repository's
-  `windows_cluster` (run 42165815334, node1, westus3); a re-run cleared each. Logging the
-  runner's CPU model (`lscpu`) with the lab diagnostics would show whether it follows a host CPU
-  type under `-cpu host`; retrying such a VM's first boot once, on a fresh overlay, is another
-  option.
+  this computer's hardware", in the screendump) never reports ready, so `ready` waits out the
+  whole 30-minute deadline (its "WinRM port accepts connections" says nothing: slirp accepts on
+  the host side whatever the guest does). Seen three times on 2026-11-02, in windows runs
+  41464369281 and 41521829034 and isc run 41512670995, and again on 2026-11-06 in this
+  repository's `windows_cluster` (run 42165815334, node1, westus3), in windows run 42300866937
+  (srcdc, whose disk stopped 4 minutes after QEMU started: the freeze above, or the dialog's idle
+  wait) and on 2026-11-07 in windows run 42417585756 (srcdc again, centralus, its disk still
+  written to the end: alive at the dialog); a re-run cleared each. A guest at the dialog that
+  keeps its disk busy never gets the watchdog's verdict, by design: it isn't stuck, Setup is.
+  It is sensitive to the guest's timers: in the 2026-11-07 soak (the freeze gotcha) the default
+  `-cpu` hit it on 1 of 60 first boots (a D4ads_v6, EPYC 9V74) and `tsc-deadline=off` on 4 of 60.
+  Since 0.6.0 the lab's QEMU log and setup-molecule record the runner's hardware, so the next one
+  can be matched to a host type; one whose disk stops gets the watchdog's verdict (rc 13) after 3
+  minutes. Retrying such a VM's first boot once, on a fresh overlay, is another option.

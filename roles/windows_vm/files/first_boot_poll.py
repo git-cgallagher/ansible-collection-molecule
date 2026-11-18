@@ -9,13 +9,16 @@ a VM that can't finish ends the wait at once:
     10  QEMU is gone: its pidfile names no live process
     11  the guest stopped (powered off, which -no-shutdown keeps QEMU up for,
         or paused on an error); QEMU's status goes to stdout
+    13  the guest made no progress while QEMU reports it running: the
+        supervisor's watchdog (vm_watch.py) wrote --stalled; its verdict goes
+        to stdout
     12  the scenario's first-boot deadline has passed
      0  the first boot has finished
      3  not yet: WinRM didn't answer, or the box is still busy
 
     python3 first_boot_poll.py --host 127.0.0.1 --port 15985 --user vagrant \\
         --password vagrant --pidfile dc01.pid --monitor dc01-monitor.sock \\
-        --deadline 1762041600
+        --stalled dc01.stalled --deadline 1762041600
 """
 
 from __future__ import annotations
@@ -102,6 +105,7 @@ def main() -> int:
     parser.add_argument("--password", required=True)
     parser.add_argument("--pidfile", required=True, help="QEMU's -pidfile")
     parser.add_argument("--monitor", required=True, help="QEMU's -monitor unix socket")
+    parser.add_argument("--stalled", help="the watchdog's marker: it exists while the guest makes no progress")
     parser.add_argument("--deadline", type=float, required=True, help="seconds since the epoch")
     args = parser.parse_args()
 
@@ -112,6 +116,13 @@ def main() -> int:
     if status is not None and not status.startswith("running"):
         print(status)
         return 11
+    if args.stalled and os.path.exists(args.stalled):
+        try:
+            with open(args.stalled, encoding="utf-8", errors="replace") as handle:
+                print(handle.read().strip())
+        except OSError:
+            print(f"the watchdog found no progress ({args.stalled})")
+        return 13
     if time.time() > args.deadline:
         print(f"QEMU status: {status or 'no answer from the monitor'}; WinRM port {args.port} "
               f"{'accepts connections but the box never reported ready' if port_open(args.host, args.port) else 'is closed'}")

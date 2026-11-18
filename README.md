@@ -105,6 +105,22 @@ destroy keeps it. A guest that powers itself off stays in QEMU (`-no-shutdown`),
 and log. `windows_vm_first_boot_retries`, the poll count before 0.4.0, still works as that many 10 s
 polls.
 
+A guest can also stop while QEMU still reports it running: its screen's clock stops, its disk is no
+longer written, and the next WinRM call times out ("Read timed out"). QEMU can't tell, so a
+**watchdog** in the VM's supervisor watches each guest from outside, through a QMP socket of its
+own: no disk I/O and no answer on its WinRM port for `windows_vm_watchdog_timeout` seconds (180 by
+default; `0` turns it off) is a stall. The watchdog then writes its verdict and a capture to the
+QEMU log: the screen (`<platform>-stalled-screen.ppm`), each vCPU thread's state with KVM's
+counters, the registers and local APICs, and whether the guest moved again once its vCPUs were
+interrupted to read them. A stall during the first boot ends the wait at once, and the
+`vm-screendump` action turns a verdict into an error annotation on the run. The watchdog only
+reports: the VM keeps running. With `windows_vm_watchdog_nmi: true` it also sends a guest that is
+still stuck an NMI and takes a second screen 15 s later; the guest bugchecks and reboots, so
+that's for investigating a stall. Each QEMU log starts with the host's kernel,
+clocksource and CPU, and setup-molecule's `kvm: 'true'` records the rest of the runner (its Azure VM
+size, TSC flags, KVM parameters and Hyper-V build). `windows_vm_cpu` is QEMU's `-cpu` for every VM
+(the host's CPU plus Hyper-V enlightenments).
+
 ### Keys every platform shares: `platform_defaults`
 
 When a scenario sets `platforms`, Molecule replaces the base config's list rather than merging it, so
@@ -230,17 +246,17 @@ step.
 Locally, at one tag:
 
 ```bash
-pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.5.1"
+pip install "molecule-git-cgallagher[windows] @ git+https://github.com/git-cgallagher/ansible-collection-molecule@v0.6.0"
 ```
 
 ```bash
-ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.5.1
+ansible-galaxy collection install git+https://github.com/git-cgallagher/ansible-collection-molecule.git,v0.6.0
 ```
 
 In GitHub Actions, one step (pin the SHA; Dependabot keeps it current):
 
 ```yaml
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.1
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.6.0
   with:
     collection: git_cgallagher.isc
     requirements: requirements.yml
@@ -265,7 +281,7 @@ runs the same versions as their jobs in the image and never downloads a collecti
     echo "image=$image" >> "$GITHUB_OUTPUT"
     mkdir -p .cache
     docker run --rm "$image" cat /usr/share/ansible-runtime/constraints.txt > .cache/constraints.txt
-- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.5.1
+- uses: git-cgallagher/ansible-collection-molecule/.github/actions/setup-molecule@<sha>  # v0.6.0
   with:
     collection: git_cgallagher.isc
     collections-image: ${{ steps.runtime.outputs.image }}
@@ -304,6 +320,12 @@ try without the mirror apt tried first (on GitHub's runners, `archive.ubuntu.com
 
 That's 10 minutes of apt at most; a healthy runner needs about 15 seconds. A `timeout-minutes`
 on the setup step must leave room for that: the windows collection's 15 does.
+
+Its "Record the host" step prints what the lab's VMs will run on, so a failure can be matched
+to the runner later: the runner's Azure VM size and region (GitHub's `ubuntu-latest` runners are
+Azure VMs of several hardware generations), its CPU, kernel, TSC flags and clocksource, the KVM
+module parameters and the kernel's notes on Hyper-V (its build) and the TSC. With `lab-dir` it also
+writes them to `<lab-dir>/host-info.txt`, for a workflow's diagnostics artifact.
 
 How the image and this driver make up a collection's CI (which jobs run in the image and which on
 the runner, the pins a consumer holds, the round that follows a driver release):

@@ -6,6 +6,8 @@
     windows_vm_overlay: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.qcow2"
     windows_vm_pidfile: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.pid"
     windows_vm_monitor: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-monitor.sock"
+    windows_vm_qmp: "{{ windows_vm_dir }}/{{ molecule_platform.name }}-qmp.sock"
+    windows_vm_stall_marker: "{{ windows_vm_dir }}/{{ molecule_platform.name }}.stalled"
 
 - name: Read the QEMU pidfile
   ansible.builtin.slurp:
@@ -52,8 +54,10 @@
   changed_when: "'stopped' in windows_vm_hub_stop.stdout"
 
 # <platform>-qemu.log stays: it records how the VM ended (diagnostics after a
-# failed run), and the next create empties it.
-- name: Remove the VM disk, pidfile and monitor socket
+# failed run), and the next create empties it. So do the watchdog's screens
+# (<platform>-stalled-screen.ppm, -nmi-screen.ppm), which the next create
+# removes.
+- name: Remove the VM disk, pidfile, sockets and stall marker
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
@@ -61,3 +65,5 @@
     - "{{ windows_vm_overlay }}"
     - "{{ windows_vm_pidfile }}"
     - "{{ windows_vm_monitor }}"
+    - "{{ windows_vm_qmp }}"
+    - "{{ windows_vm_stall_marker }}"
